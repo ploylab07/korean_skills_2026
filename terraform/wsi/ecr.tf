@@ -1,5 +1,6 @@
 resource "aws_ecr_repository" "about" {
   name                 = "wsi-about"
+  force_delete         = true
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -13,6 +14,7 @@ resource "aws_ecr_repository" "about" {
 
 resource "aws_ecr_repository" "projects" {
   name                 = "wsi-projects"
+  force_delete         = true
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
