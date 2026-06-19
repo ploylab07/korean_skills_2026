@@ -1,356 +1,616 @@
 # Korean Skills 2026
 
-매일 학습 기록을 남기는 저장소입니다.
+클라우드 컴퓨팅 경기대회 문제를 풀기 위한 **Terraform IaC(인프라 자동화)** 학습 저장소입니다.
+
+이 README만 따라 하면, **Terraform을 PC에 따로 설치하지 않고** clone → AWS 배포 → 삭제까지 처음부터 끝까지 해볼 수 있습니다.
 
 ---
 
-## 📁 폴더 구조
+## 목차
+
+1. [이 저장소는 무엇인가요?](#1-이-저장소는-무엇인가요)
+2. [폴더 구조](#2-폴더-구조)
+3. [사전 준비](#3-사전-준비)
+4. [빠른 시작 — 5분 요약](#4-빠른-시작--5분-요약)
+5. [처음부터 끝까지 따라하기 (연습 배포)](#5-처음부터-끝까지-따라하기-연습-배포)
+6. [Terraform 명령어 정리](#6-terraform-명령어-정리)
+7. [AWS 키 설정 / 변경](#7-aws-키-설정--변경)
+8. [Git 브랜치 전략](#8-git-브랜치-전략)
+9. [경기 과제 작업 흐름](#9-경기-과제-작업-흐름)
+10. [Cursor AI로 작업하기](#10-cursor-ai로-작업하기)
+11. [자주 발생하는 문제](#11-자주-발생하는-문제)
+12. [참고 문서](#12-참고-문서)
+
+---
+
+## 1. 이 저장소는 무엇인가요?
+
+| 항목 | 설명 |
+|------|------|
+| 목적 | 클라우드 컴퓨팅 문제의 AWS 인프라를 Terraform 코드로 구현 |
+| 특징 | `git clone`만 하면 Terraform 실행 환경이 준비됨 (별도 설치 불필요) |
+| 작업 단위 | `day1/`, `day2/`, `day3/` 등 날짜·과제별 폴더 |
+| 목표 | 문제 명세와 **채점 기준 만점** 충족 |
+
+### Terraform이란?
+
+AWS 콘솔에서 클릭으로 VPC·EC2를 만드는 대신, **코드(.tf 파일)** 로 인프라를 정의하고 한 번에 배포하는 도구입니다.
+
+| 명령 | 의미 | 비유 |
+|------|------|------|
+| `init` | 플러그인 다운로드 | 도구 준비 |
+| `plan` | 변경 계획 미리보기 | 설계도 확인 |
+| `apply` | AWS에 실제 반영 | 공사 |
+| `destroy` | 만든 리소스 전부 삭제 | 철거 |
+
+---
+
+## 2. 폴더 구조
 
 ```
 korean_skills_2026/
-├── day1/        # Day 1 학습 자료
-├── day2/        # Day 2 학습 자료
-├── day3/        # Day 3 학습 자료
-└── README.md
+├── README.md              ← 지금 보고 있는 가이드 (전체 흐름)
+├── terraform.cmd          ← Windows용 Terraform 실행
+├── terraform              ← Mac/Linux/Git Bash용 Terraform 실행
+├── setup-aws.cmd          ← Windows용 AWS 키 입력
+├── setup-aws              ← Mac/Linux용 AWS 키 입력
+├── .env.example           ← AWS 키 템플릿
+├── day1/                  ← Day 1 과제 Terraform 코드
+├── day2/                  ← Day 2 과제
+├── day3/                  ← Day 3 과제
+├── build/                 ← Terraform 자동 다운로드 도구 (상세: build/README.md)
+├── docs/                  ← 과제별 상세 설명서
+│   └── TERRAFORM_GUIDE.md
+└── .cursor/rules/         ← Cursor AI 작업 규칙
 ```
 
----
-
-## 🌿 브랜치 전략
-
-이 저장소는 **두 개의 브랜치**로 운영됩니다.
-
-| 브랜치 | 역할 | 누가 직접 푸시? |
-|---|---|---|
-| `master` | **안정 버전.** 완성된 결과물만 머지 | ❌ (PR로만) |
-| `dev` | **개발/작업 중.** 평소 작업은 여기서 | ✅ |
-
-> 💡 평소엔 항상 `dev`에서 작업하고, 완성됐을 때만 `master`로 옮깁니다.
+> **중요:** Windows에서는 `terraform`이 아니라 **`terraform.cmd`** 를 사용하세요.  
+> Mac/Linux에서는 **`./terraform`** (`./` 필수)를 사용하세요.
 
 ---
 
-## 🚀 처음 시작하는 사람을 위한 가이드
+## 3. 사전 준비
 
-### 0. 사전 준비
+### 필수
 
-이 저장소를 본인 컴퓨터(또는 서버)에 가져옵니다.
+| 항목 | Windows | Mac / Linux |
+|------|---------|-------------|
+| Git | [git-scm.com](https://git-scm.com/) | 보통 기본 설치 또는 `brew install git` |
+| 인터넷 | 최초 Terraform 다운로드용 | 동일 |
+| AWS 계정 + Access Key | IAM에서 발급 | 동일 |
 
-```bash
-# 작업 폴더로 이동
-cd ~/projects
+### 불필요 (이 레포가 대신 해줌)
 
-# 저장소 클론 (SSH 방식)
-git clone git@github.com:본인username/korean_skills_2026.git
+- ❌ `choco install terraform`
+- ❌ `brew install terraform`
+- ❌ `apt install terraform`
+- ❌ 수동 `export AWS_...` (setup-aws 사용 시)
 
-# 폴더로 진입
+### AWS Access Key 발급 방법 (처음이라면)
+
+1. [AWS 콘솔](https://console.aws.amazon.com/) 로그인
+2. **IAM** → **사용자** → 본인 사용자 선택 (또는 새로 생성)
+3. **보안 자격 증명** 탭 → **액세스 키 만들기**
+4. `AKIA...` (Access Key ID)와 Secret Access Key를 안전하게 보관
+
+> 경기/연습용 계정이라면 보통 `PowerUserAccess` 또는 문제에서 지정한 권한이 필요합니다.
+
+---
+
+## 4. 빠른 시작 — 5분 요약
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/본인username/korean_skills_2026.git
 cd korean_skills_2026
-```
-
-> SSH 키가 GitHub에 등록되어 있어야 합니다. 안 되어 있으면 HTTPS 주소 사용:
-> ```
-> git clone https://github.com/본인username/korean_skills_2026.git
-> ```
-
----
-
-### 1. 작업 시작 전 — 항상 `dev` 브랜치로
-
-```bash
-# 현재 어느 브랜치인지 확인
-git branch
-
-# dev 브랜치로 이동
 git switch dev
 
-# 원격에서 최신 변경사항 가져오기 (다른 곳에서 작업했을 수도 있으니)
+.\terraform.cmd version      # Terraform 자동 다운로드
+.\setup-aws.cmd              # AWS 키 입력 → .env 저장
+
+cd day1
+..\terraform.cmd init
+..\terraform.cmd plan
+..\terraform.cmd apply
+..\terraform.cmd destroy     # 연습 끝나면 반드시 삭제
+```
+
+### Mac / Linux
+
+```bash
+git clone https://github.com/본인username/korean_skills_2026.git
+cd korean_skills_2026
+git switch dev
+
+chmod +x terraform setup-aws   # 최초 1회
+./terraform version
+./setup-aws
+
+cd day1
+../terraform init
+../terraform plan
+../terraform apply
+../terraform destroy
+```
+
+---
+
+## 5. 처음부터 끝까지 따라하기 (연습 배포)
+
+아래는 **day1 폴더에 최소 S3 버킷**을 만들어 배포했다가 지우는 연습입니다.  
+실제 경기 과제 코드가 없어도 Terraform 흐름을 익힐 수 있습니다.
+
+### Step 0 — 저장소 받기
+
+```bash
+# HTTPS 예시 (SSH도 가능)
+git clone https://github.com/본인username/korean_skills_2026.git
+cd korean_skills_2026
+git switch dev
 git pull
 ```
 
----
+### Step 1 — Terraform 준비 확인
 
-### 2. 매일 학습 — 새 파일 만들고 커밋
+**Windows:**
 
-오늘이 day1이라고 가정:
+```powershell
+.\terraform.cmd version
+```
+
+**Mac / Linux:**
 
 ```bash
-# day1 폴더에 새 파일 작성
+chmod +x terraform setup-aws
+./terraform version
+```
+
+`Terraform v1.9.8` 같은 버전이 출력되면 성공입니다.  
+첫 실행 시 `build/.bin/`에 바이너리가 자동으로 내려받아집니다.
+
+### Step 2 — AWS 키 입력
+
+**Windows:**
+
+```powershell
+.\setup-aws.cmd
+```
+
+**Mac / Linux:**
+
+```bash
+./setup-aws
+```
+
+입력 항목:
+
+```
+AWS_ACCESS_KEY_ID:     AKIA...
+AWS_SECRET_ACCESS_KEY: (입력 시 화면에 안 보임)
+AWS_DEFAULT_REGION:    ap-northeast-2   ← Enter만 눌러도 됨
+```
+
+→ 프로젝트 루트 `.env` 파일에 저장됩니다. Git에 올라가지 않습니다.  
+이후 `terraform.cmd` / `./terraform` 실행 시 **자동으로 AWS 키가 적용**됩니다.
+
+### Step 3 — 연습용 Terraform 코드 작성
+
+`day1` 폴더에 아래 파일을 만듭니다.
+
+**day1/main.tf**
+
+```hcl
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = "ap-northeast-2"
+}
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket" "practice" {
+  bucket = "ks2026-practice-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Name    = "practice"
+    Project = "korean-skills-2026"
+  }
+}
+
+output "bucket_name" {
+  value = aws_s3_bucket.practice.bucket
+}
+```
+
+> 버킷 이름은 전 세계에서 유일해야 해서 계정 ID를 붙였습니다.  
+> 이미 같은 이름이 있으면 `ks2026-practice-본인이름-...` 처럼 바꿔 주세요.
+
+### Step 4 — init (초기화)
+
+과제 폴더로 이동한 뒤 `init`을 실행합니다.
+
+**Windows:**
+
+```powershell
 cd day1
-
-# 예: 학습 노트 작성
-nano study.md
-# 또는
-code study.md
+..\terraform.cmd init
 ```
 
-작성 끝나면 커밋:
+**Mac / Linux:**
 
 ```bash
-# 프로젝트 루트로 돌아가기
-cd ~/projects/korean_skills_2026
+cd day1
+../terraform init
+```
 
-# 변경사항 확인
-git status
+`Terraform has been successfully initialized!` 메시지가 나오면 성공입니다.
 
-# 변경사항 전체 추가
-git add .
+### Step 5 — plan (미리보기)
 
-# 커밋 (메시지는 명확하게)
-git commit -m "day1: 학습 노트 추가"
+**Windows:** `..\terraform.cmd plan`  
+**Mac / Linux:** `../terraform plan`
 
-# 원격에 푸시
-git push
+출력에서 `+ create` 로 S3 버킷이 추가될 예정인지 확인합니다.  
+에러 없이 계획이 보이면 다음 단계로 넘어갑니다.
+
+### Step 6 — apply (실제 배포)
+
+**Windows:**
+
+```powershell
+..\terraform.cmd apply
+```
+
+**Mac / Linux:**
+
+```bash
+../terraform apply
+```
+
+`Do you want to perform these actions?` 에 **`yes`** 입력.
+
+성공하면 마지막에 `bucket_name = "ks2026-practice-..."` 가 출력됩니다.
+
+**AWS 콘솔에서 확인:**
+
+1. [S3 콘솔](https://s3.console.aws.amazon.com/) 접속
+2. 리전이 `ap-northeast-2`(서울)인지 확인
+3. 방금 만든 버킷이 보이는지 확인
+
+### Step 7 — output 확인
+
+**Windows:** `..\terraform.cmd output`  
+**Mac / Linux:** `../terraform output`
+
+```text
+bucket_name = "ks2026-practice-123456789012"
+```
+
+### Step 8 — destroy (리소스 삭제) ⚠️ 필수
+
+연습이 끝나면 **반드시 삭제**하세요. 안 지우면 S3 요금이 발생할 수 있습니다.
+
+**Windows:**
+
+```powershell
+..\terraform.cmd destroy
+```
+
+**Mac / Linux:**
+
+```bash
+../terraform destroy
+```
+
+`Do you really want to destroy all resources?` 에 **`yes`** 입력.
+
+삭제 후 S3 콘솔에서 버킷이 사라졌는지 확인합니다.
+
+### Step 9 — 정리 (선택)
+
+연습 파일을 Git에 올리지 않으려면 `day1/main.tf`를 삭제하거나, 커밋하지 않으면 됩니다.  
+`.terraform/` 폴더와 `terraform.tfstate`는 `.gitignore`에 포함되어 있어 자동으로 제외됩니다.
+
+---
+
+## 6. Terraform 명령어 정리
+
+과제 폴더(`.tf` 파일이 있는 곳)에서 실행합니다.
+
+| 명령 | 설명 | 실제 AWS 변경? |
+|------|------|----------------|
+| `init` | 플러그인·백엔드 초기화 | ❌ |
+| `validate` | 문법 검사 | ❌ |
+| `plan` | 변경 계획 미리보기 | ❌ |
+| `apply` | 리소스 생성·변경 | ✅ |
+| `destroy` | 리소스 전부 삭제 | ✅ |
+| `output` | 출력 값 확인 | ❌ |
+
+### Windows / Mac 명령 대응표
+
+| 작업 | Windows (day1 폴더 안) | Mac/Linux (day1 폴더 안) |
+|------|------------------------|--------------------------|
+| 초기화 | `..\terraform.cmd init` | `../terraform init` |
+| 계획 | `..\terraform.cmd plan` | `../terraform plan` |
+| 배포 | `..\terraform.cmd apply` | `../terraform apply` |
+| 삭제 | `..\terraform.cmd destroy` | `../terraform destroy` |
+
+### 루트에서 특정 폴더 지정하기
+
+폴더 이동 없이 프로젝트 루트에서 실행할 수도 있습니다.
+
+**Windows:**
+
+```powershell
+.\terraform.cmd -chdir=day1 plan
+.\terraform.cmd -chdir=day1 apply
+```
+
+**Mac / Linux:**
+
+```bash
+./terraform -chdir=day1 plan
+./terraform -chdir=day1 apply
+```
+
+### 자동 승인 (주의해서 사용)
+
+확인 프롬프트 없이 실행하려면 `-auto-approve`를 붙입니다.
+
+```powershell
+..\terraform.cmd apply -auto-approve
+..\terraform.cmd destroy -auto-approve
 ```
 
 ---
 
-### 3. 커밋 메시지 규칙 (권장)
+## 7. AWS 키 설정 / 변경
+
+### 방법 A — setup-aws (권장)
+
+```powershell
+# Windows
+.\setup-aws.cmd
+
+# Mac / Linux
+./setup-aws
+```
+
+### 방법 B — .env.example 복사 후 편집
+
+```bash
+cp .env.example .env
+# .env 파일을 메모장/에디터로 직접 수정
+```
+
+`.env` 내용 예시:
+
+```env
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_DEFAULT_REGION=ap-northeast-2
+```
+
+> `.env`와 `*.tfvars`는 Git에 올라가지 않습니다. 절대 커밋하지 마세요.
+
+---
+
+## 8. Git 브랜치 전략
+
+| 브랜치 | 역할 | 평소 작업 |
+|--------|------|-----------|
+| `dev` | 개발·작업 중 | ✅ 여기서 작업 |
+| `master` | 완성된 안정 버전 | ❌ 직접 push 금지 |
+
+### 평소 작업 흐름
+
+```bash
+git switch dev
+git pull
+# ... Terraform 작업 ...
+git add .
+git commit -m "feat: day1 S3 연습 완료"
+git push origin dev
+```
+
+### dev → master 반영 (완성됐을 때만)
+
+```bash
+git switch master
+git pull
+git merge dev
+git push origin master
+git switch dev
+```
+
+### 커밋 메시지 권장 형식
 
 | 접두사 | 의미 | 예시 |
-|---|---|---|
-| `feat:` | 새 기능/내용 추가 | `feat: day1 학습 노트 추가` |
-| `fix:` | 버그/오타 수정 | `fix: day2 오타 수정` |
-| `docs:` | 문서만 수정 | `docs: README 업데이트` |
-| `chore:` | 자잘한 정리 | `chore: 폴더 구조 정리` |
-| `refactor:` | 코드 구조 개선 | `refactor: 코드 정리` |
+|--------|------|------|
+| `feat:` | 새 기능/과제 추가 | `feat: day1 wsi 인프라 구현` |
+| `fix:` | 버그 수정 | `fix: security group 규칙 수정` |
+| `docs:` | 문서 수정 | `docs: README 업데이트` |
 
 ---
 
-### 4. `dev` → `master` 머지 (완성됐을 때만)
+## 9. 경기 과제 작업 흐름
 
-day1~day3가 다 완성되어 안정화됐다 싶으면 `master`로 옮깁니다.
+실제 경기대회 문제를 풀 때는 아래 순서를 따릅니다.
 
-```bash
-# master로 이동
-git switch master
-
-# 최신 master 받아오기
-git pull
-
-# dev의 내용을 master로 합치기
-git merge dev
-
-# 원격 master에 푸시
-git push
-
-# 다시 작업 브랜치로 복귀
-git switch dev
+```
+1. 문제 PDF / 명세 확인
+2. 채점 기준 항목·배점 확인
+3. 문제에서 제공하는 파일·리소스 확인 (AMI, Docker 이미지 등)
+4. 작업할 폴더 결정 (day1, day2, terraform/wsi 등)
+5. setup-aws 로 AWS 키 설정
+6. Terraform 코드 작성 (최소 파일 수로)
+7. init → plan → apply
+8. 채점 기준 항목 하나씩 대조 검증
+9. destroy (연습/테스트 후) 또는 제출
+10. dev에 commit & push → 완성 시 master 머지
 ```
 
-> 📌 더 안전한 방법: GitHub에서 **Pull Request(PR)** 만들어서 머지. 협업이 익숙해지면 PR 방식을 추천합니다.
+> Cursor AI 사용 시 `.cursor/rules/`에 정의된 규칙에 따라, 작업 전 폴더 확인·채점 기준 만점·AWS 키 질문 등이 자동으로 적용됩니다.
 
 ---
 
-### 5. 새 브랜치에서 실험하기 (선택)
+## 10. Cursor AI로 작업하기
 
-큰 변경을 해볼 때는 `dev`에서 또 다른 브랜치를 따서 작업:
+터미널에서 Cursor Agent를 쓰면 자연어로 Terraform 코드 작성·실행을 도와줍니다.
 
-```bash
-# dev에서 새 브랜치 생성 & 이동
-git switch dev
-git switch -c experiment/new-idea
-
-# 작업 후 커밋
-git add .
-git commit -m "experiment: 새로운 시도"
-
-# 원격에 푸시
-git push -u origin experiment/new-idea
-
-# 마음에 들면 dev로 머지
-git switch dev
-git merge experiment/new-idea
-git push
-
-# 안 쓰는 브랜치 삭제
-git branch -d experiment/new-idea
-git push origin --delete experiment/new-idea
-```
-
----
-
-## 🛠️ 자주 쓰는 git 명령어 모음
-
-| 명령어 | 설명 |
-|---|---|
-| `git status` | 지금 어떤 파일이 바뀌었는지 확인 |
-| `git diff` | 어디가 어떻게 바뀌었는지 보기 |
-| `git log --oneline --graph --all` | 커밋 히스토리 그래프 |
-| `git branch` | 로컬 브랜치 목록 |
-| `git branch -a` | 원격 포함 모든 브랜치 |
-| `git switch <브랜치>` | 브랜치 이동 |
-| `git switch -c <새브랜치>` | 새 브랜치 만들고 이동 |
-| `git pull` | 원격 변경사항 받아오기 |
-| `git push` | 로컬 변경사항 원격에 올리기 |
-| `git restore <파일>` | 파일 변경 취소 (커밋 전) |
-| `git reset HEAD~1` | 마지막 커밋 취소 (파일은 유지) |
-
----
-
-## 🤖 Cursor CLI 사용법
-
-`cursor-agent`는 터미널에서 동작하는 AI 코딩 도우미입니다. 채팅으로 명령하면 코드를 읽고, 수정하고, 실행해 줍니다.
-
-### 0. 설치 (한 번만)
+### 설치 (한 번만)
 
 ```bash
 curl https://cursor.com/install -fsS | bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-cursor-agent --version
-```
-
-### 1. 로그인 (한 번만)
-
-```bash
 cursor-agent login
 ```
 
-→ 터미널에 표시된 URL을 브라우저에서 열고, Cursor 계정으로 로그인한 뒤 코드 입력.
+### 사용 예시
 
 ```bash
-cursor-agent status
-```
-
-→ `Logged in as ...` 메시지 보이면 성공.
-
----
-
-### 2. 기본 실행 — 대화형 모드
-
-항상 **작업할 프로젝트 폴더 안에서** 실행하세요. 그래야 AI가 그 폴더의 파일들을 컨텍스트로 인식합니다.
-
-```bash
-cd ~/projects/korean_skills_2026
+cd korean_skills_2026
 cursor-agent
 ```
 
-프롬프트가 뜨면 자연어로 명령:
-
 ```
-> day1 폴더에 파이썬 기초 학습용 hello.py 파일 만들어줘
-> README.md에 오타 있는지 확인하고 고쳐줘
-> day2 폴더의 모든 파이썬 파일을 요약해줘
-> 이 프로젝트 구조 설명해줘
+> day1 폴더에 문제 명세대로 VPC Terraform 코드 작성해줘
+> 채점 기준 확인하고 빠진 항목 있으면 수정해줘
+> plan 돌려보고 에러 고쳐줘
 ```
 
-### 3. 한 번만 묻고 끝내기 (one-shot)
-
-대화형 모드 없이 한 줄로:
-
-```bash
-cursor-agent "day1 폴더 안에 있는 파일들 요약해줘"
-```
-
-### 4. 이전 대화 이어가기
-
-```bash
-cursor-agent --resume
-```
-
-이전 세션을 이어서 진행합니다.
-
-### 5. 유용한 명령어 모음
-
-| 명령 | 설명 |
-|---|---|
-| `cursor-agent` | 대화형 시작 |
-| `cursor-agent "질문"` | 한 번 묻고 끝 |
-| `cursor-agent --resume` | 이전 세션 재개 |
-| `cursor-agent status` | 로그인 상태 확인 |
-| `cursor-agent --help` | 전체 도움말 |
-
-### 6. 좋은 프롬프트 작성 팁
-
-| ❌ 안 좋은 예 | ✅ 좋은 예 |
-|---|---|
-| "코드 짜줘" | "day1 폴더에 사용자 입력을 받아 인사하는 파이썬 스크립트 `hello.py` 만들어줘" |
-| "버그 고쳐" | "day2/calc.py에서 0으로 나누면 에러 나는데, 예외처리 추가해줘" |
-| "정리해" | "README.md의 폴더 구조 섹션을 day5까지 추가하도록 업데이트해줘" |
-
-**핵심**: 어느 파일/폴더에 무엇을 어떻게 해 달라는지 구체적으로 적기.
+**좋은 프롬프트:** 어느 폴더에, 무엇을, 어떤 제약으로 — 구체적으로 적기.
 
 ---
 
-## 📝 매일의 작업 루틴 예시
+## 11. 자주 발생하는 문제
+
+### `terraform: command not found` (Windows)
+
+```powershell
+# ❌ 시스템 전역 terraform (없을 수 있음)
+terraform init
+
+# ✅ 이 레포의 래퍼
+.\terraform.cmd init
+```
+
+### `terraform: command not found` (Mac/Linux)
 
 ```bash
-# 1. 작업 시작
-cd ~/projects/korean_skills_2026
-git switch dev
-git pull
+# ❌
+terraform init
 
-# 2. 오늘 학습 폴더로 이동
+# ✅
+./terraform init
+```
+
+### `Error: No valid credential sources found`
+
+AWS 키가 없습니다.
+
+```powershell
+.\setup-aws.cmd    # Windows
+./setup-aws          # Mac/Linux
+```
+
+### `Error: Failed to query available provider packages`
+
+`init`을 먼저 실행하지 않았거나 네트워크 문제입니다.
+
+```bash
+../terraform init -upgrade
+```
+
+### S3 버킷 이름 Already Exists
+
+버킷 이름은 전 세계 유일해야 합니다. `main.tf`의 `bucket` 값에 본인만의 접미사를 추가하세요.
+
+### apply 후 요금이 걱정될 때
+
+연습이 끝나면 **반드시 destroy** 하세요.
+
+```bash
+../terraform destroy
+```
+
+### Git push 거부됨
+
+```bash
+git pull
+git push
+```
+
+### Terraform 다운로드 실패
+
+- 인터넷 연결 확인
+- `releases.hashicorp.com` 접근 가능 여부 확인
+- 바이너리 재다운로드:
+
+```powershell
+# Windows
+Remove-Item -Recurse -Force build\.bin
+.\terraform.cmd version
+```
+
+```bash
+# Mac/Linux
+rm -rf build/.bin
+./terraform version
+```
+
+---
+
+## 12. 참고 문서
+
+| 문서 | 내용 |
+|------|------|
+| [build/README.md](build/README.md) | Terraform 래퍼·setup-aws 상세 설명 |
+| [docs/TERRAFORM_GUIDE.md](docs/TERRAFORM_GUIDE.md) | 2023 WSI 과제 아키텍처·요구사항 매핑 |
+| [Terraform 공식 문서](https://developer.hashicorp.com/terraform/docs) | 공식 레퍼런스 |
+| [AWS Terraform Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) | AWS 리소스 문서 |
+
+---
+
+## 하루 작업 루틴 (요약)
+
+```bash
+# 1. 시작
+cd korean_skills_2026
+git switch dev && git pull
+
+# 2. AWS 키 (최초 1회 또는 키 변경 시)
+./setup-aws          # Mac/Linux
+.\setup-aws.cmd      # Windows
+
+# 3. 과제 폴더에서 Terraform
 cd day1
+../terraform init
+../terraform plan
+../terraform apply
 
-# 3. Cursor와 함께 작업
-cursor-agent
-# > day1에 알고리즘 학습용 메모 파일 만들어줘
-# > 작성한 코드 실행해서 결과 확인해줘
-# > 코드에 주석 추가해줘
+# 4. 검증 후 삭제 (연습/테스트 시)
+../terraform destroy
 
-# 4. 변경사항 커밋
+# 5. 커밋
 cd ..
-git status
 git add .
-git commit -m "feat: day1 알고리즘 학습 노트 추가"
-git push
-
-# 5. 작업 종료
+git commit -m "feat: day1 과제 완료"
+git push origin dev
 ```
 
 ---
 
-## 🆘 자주 발생하는 문제
+**핵심만 기억하세요:**
 
-### "Updates were rejected because the remote contains work that you do not have locally"
-
-원격에 내가 모르는 커밋이 있다는 뜻. 먼저 받아온 뒤 푸시:
-
-```bash
-git pull
-git push
-```
-
-### 실수로 `master`에 직접 커밋해버린 경우
-
-```bash
-# master에 새 커밋이 있는 상태
-git switch dev
-git merge master
-git switch master
-git reset --hard HEAD~1   # master를 한 커밋 되돌리기
-git switch dev
-```
-
-> ⚠️ 이미 push한 뒤라면 더 복잡해집니다. 그냥 dev에서 작업하는 습관을 들이세요.
-
-### 커밋 메시지 잘못 썼을 때 (push 전)
-
-```bash
-git commit --amend -m "새로운 메시지"
-```
-
-### 어떤 파일이 어디서 왜 바뀌었는지 모를 때
-
-```bash
-git log -p <파일경로>     # 그 파일의 변경 이력
-git blame <파일경로>      # 줄별로 누가 언제 마지막 수정했는지
-```
-
----
-
-## 🔗 참고 링크
-
-- Git 공식 문서: https://git-scm.com/book/ko/v2
-- GitHub Docs: https://docs.github.com/ko
-- Cursor 공식 문서: https://docs.cursor.com
-
----
-
-## ✍️ 마지막 한마디
-
-처음엔 git 명령어가 어렵게 느껴질 수 있지만, **`status` → `add` → `commit` → `push`** 이 네 단계만 익숙해지면 90%는 끝납니다.
-
-작게 자주 커밋하고, 막히면 README의 자주 발생하는 문제 섹션을 보세요. 그래도 안 풀리면 `cursor-agent`에게 물어보면 됩니다.
-
-화이팅!
+1. `terraform` 설치 없이 → **`terraform.cmd`** (Windows) / **`./terraform`** (Mac/Linux)
+2. AWS 키는 → **`setup-aws`** 한 번만
+3. 배포 흐름 → **`init` → `plan` → `apply` → `destroy`**
+4. 연습 끝나면 → **`destroy` 필수**

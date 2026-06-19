@@ -1,0 +1,32 @@
+---
+description: dev → master 브랜치 푸시·머지 규칙
+alwaysApply: true
+---
+
+# Git 브랜치 전략
+
+원격 push 시 아래 순서를 반드시 따른다.
+
+## 1. dev에 먼저 push
+
+```bash
+git switch dev
+git pull
+git add .
+git commit -m "메시지"
+git push origin dev
+```
+
+## 2. master로 머지 후 push
+
+```bash
+git switch master
+git pull
+git merge dev
+git push origin master
+git switch dev
+```
+
+- 평소 작업은 **dev** 브랜치에서만 한다.
+- **master에 직접 커밋·push하지 않는다.** dev 머지 후 push한다.
+- 사용자가 push를 요청했을 때만 push한다.

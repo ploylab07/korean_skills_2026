@@ -17,7 +17,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
-
 # Terraform
 .terraform/
 *.tfstate
@@ -25,3 +24,5 @@ venv/
 *.tfvars
 !*.tfvars.example
 crash.log
+terraform/**/.build/
+build/.bin/

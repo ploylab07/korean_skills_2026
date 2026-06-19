@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Portable Terraform wrapper — first run downloads the binary into build/.bin/
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="$SCRIPT_DIR/.bin"
+TF_VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"
+
+detect_platform() {
+  local os arch
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m)"
+
+  case "$os" in
+    linux)  os="linux" ;;
+    darwin) os="darwin" ;;
+    mingw*|msys*|cygwin*) os="windows" ;;
+    *)
+      echo "error: unsupported OS: $os" >&2
+      exit 1
+      ;;
+  esac
+
+  case "$arch" in
+    x86_64|amd64)  arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *)
+      echo "error: unsupported architecture: $arch" >&2
+      exit 1
+      ;;
+  esac
+
+  echo "${os}_${arch}"
+}
+
+download_terraform() {
+  local platform zip_name url tmp_zip tf_bin
+  platform="$(detect_platform)"
+  zip_name="terraform_${TF_VERSION}_${platform}.zip"
+  url="https://releases.hashicorp.com/terraform/${TF_VERSION}/${zip_name}"
+  tmp_zip="$(mktemp)"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "error: curl is required to download Terraform" >&2
+    exit 1
+  fi
+
+  echo "Downloading Terraform ${TF_VERSION} (${platform})..."
+  curl -fsSL "$url" -o "$tmp_zip"
+
+  mkdir -p "$BIN_DIR"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -qo "$tmp_zip" -d "$BIN_DIR"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$tmp_zip" "$BIN_DIR" <<'PY'
+import sys, zipfile
+zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])
+PY
+  else
+    echo "error: unzip or python3 is required to extract Terraform" >&2
+    rm -f "$tmp_zip"
+    exit 1
+  fi
+
+  rm -f "$tmp_zip"
+
+  if [[ "$platform" == windows_* ]]; then
+    tf_bin="$BIN_DIR/terraform.exe"
+  else
+    tf_bin="$BIN_DIR/terraform"
+    chmod +x "$tf_bin"
+  fi
+
+  echo "Terraform installed: $tf_bin"
+}
+
+resolve_tf_bin() {
+  local platform
+  platform="$(detect_platform)"
+  if [[ "$platform" == windows_* ]]; then
+    echo "$BIN_DIR/terraform.exe"
+  else
+    echo "$BIN_DIR/terraform"
+  fi
+}
+
+TF_BIN="$(resolve_tf_bin)"
+
+if [[ ! -f "$TF_BIN" ]]; then
+  download_terraform
+  TF_BIN="$(resolve_tf_bin)"
+fi
+
+# shellcheck source=load-env.sh
+source "$SCRIPT_DIR/load-env.sh"
+load_repo_env "$SCRIPT_DIR"
+
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ ! -f "$REPO_ROOT/.env" ]] && [[ "${1:-}" == "apply" || "${1:-}" == "plan" ]]; then
+  echo "hint: AWS 키가 없으면 먼저 setup-aws 를 실행하세요." >&2
+  echo "      Windows: .\\setup-aws.cmd  |  Mac/Linux: ./setup-aws" >&2
+fi
+
+exec "$TF_BIN" "$@"
