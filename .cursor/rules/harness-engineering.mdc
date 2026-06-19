@@ -1,0 +1,60 @@
+---
+description: Harness engineering — 작업 완료 정의, 검증 루프, 스모크 테스트
+alwaysApply: true
+---
+
+# Harness Engineering
+
+에이전트 작업은 "코드 작성"이 아니라 **검증 가능한 완료**가 기준이다.
+
+## Done 정의 (작업 완료 조건)
+
+아래를 모두 충족해야 완료로 본다:
+
+1. 사용자가 지정한 폴더에서만 작업했는가
+2. 채점 기준 항목을 하나씩 대조했는가
+3. `./build/verify.sh` 또는 동등 검증을 실행했는가
+4. `terraform validate` / `plan` 에러가 없는가 (유효한 AWS 키 기준)
+5. 시크릿이 코드·커밋에 포함되지 않았는가
+
+## 작업 시작 루틴
+
+```
+1. 문제·채점기준·제공 파일 확인
+2. 작업 폴더 사용자에게 확인
+3. .env 없으면 setup-aws 또는 사용자 키로 .env 생성
+4. 구현
+5. 검증 (아래 체크리스트)
+```
+
+## 작업 종료 루틴 (반드시 실행)
+
+```bash
+# 프로젝트 루트에서
+./build/verify.sh
+
+# 과제 폴더에서
+../terraform init
+../terraform validate
+../terraform plan
+```
+
+Windows: `.\build\verify.sh` 대신 Git Bash 사용, 또는 `.\terraform.cmd`로 동일 명령.
+
+## 실패 처리
+
+- 같은 실수가 **2번** 반복되면 `.cursor/rules/`에 규칙을 추가·수정한다.
+- Terraform 에러는 추측으로 고치지 말고 `plan` 출력을 근거로 수정한다.
+- AWS 인증 실패 → `.env` / `setup-aws` 확인을 먼저 한다.
+
+## 금지
+
+- 검증 없이 "완료" 보고
+- 임의 폴더 생성
+- `.env`, `*.tfvars`, `terraform.tfstate` 커밋
+- 채점 기준 미충족 상태로 push
+
+## 스모크 테스트 위치
+
+- `build/verify.sh` — 래퍼·env·init·validate 일괄 검증
+- `build/smoke/` — 최소 Terraform 설정 (도구 자체 테스트용)

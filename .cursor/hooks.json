@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/after-tf-edit.sh",
+        "matcher": "\\.tf$"
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/stop-harness.sh"
+      }
+    ]
+  }
+}
