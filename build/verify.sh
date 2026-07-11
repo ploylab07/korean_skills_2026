@@ -91,6 +91,8 @@ fi
 # 6. Cursor harness files
 run_check "harness rule exists" test -f "$ROOT/.cursor/rules/harness-engineering.mdc"
 run_check "hooks.json exists" test -f "$ROOT/.cursor/hooks.json"
+run_check "run.cmd exists" test -f "$ROOT/run.cmd"
+run_check "verify.cmd exists" test -f "$ROOT/verify.cmd"
 
 echo
 echo "=== result: pass=$PASS fail=$FAIL skip=$SKIP ==="

@@ -1,0 +1,12 @@
+.git
+.terraform
+**/.terraform
+*.tfstate
+*.tfstate.*
+build/.bin
+**/.build
+**/__pycache__
+node_modules
+.venv
+venv
+day3/**/.build

@@ -1,0 +1,11 @@
+variable "github_token" {
+  description = "GitHub personal access token for repo push and CodeBuild"
+  type        = string
+  sensitive   = true
+}
+
+variable "github_oauth_token" {
+  description = "GitHub OAuth token for CodePipeline Source stage"
+  type        = string
+  sensitive   = true
+}

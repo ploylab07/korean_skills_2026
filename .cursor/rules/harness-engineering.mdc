@@ -13,7 +13,7 @@ alwaysApply: true
 
 1. 사용자가 지정한 폴더에서만 작업했는가
 2. 채점 기준 항목을 하나씩 대조했는가
-3. `./build/verify.sh` 또는 동등 검증을 실행했는가
+3. Windows: `.\verify.cmd` / Linux: `./build/verify.sh` 또는 동등 검증을 실행했는가
 4. `terraform validate` / `plan` 에러가 없는가 (유효한 AWS 키 기준)
 5. 시크릿이 코드·커밋에 포함되지 않았는가
 
@@ -29,21 +29,25 @@ alwaysApply: true
 
 ## 작업 종료 루틴 (반드시 실행)
 
-```bash
-# 프로젝트 루트에서
-./build/verify.sh
-
-# 과제 폴더에서
-../terraform init
-../terraform validate
-../terraform plan
+```powershell
+# Windows (권장)
+.\verify.cmd
+.\run.cmd <과제폴더> plan
 ```
 
-Windows: `.\build\verify.sh` 대신 Git Bash 사용, 또는 `.\terraform.cmd`로 동일 명령.
+```bash
+# Mac / Linux
+./build/verify.sh
+./terraform -chdir=<과제폴더> plan
+```
+
+Linux 개발 시 Windows 워크플로 검증: `./build/docker/test-windows.sh`
 
 ## 실패 처리
 
 - 같은 실수가 **2번** 반복되면 `.cursor/rules/`에 규칙을 추가·수정한다.
+  - Windows: `.\build\harness\add-rule.cmd -Name ... -Description ... -AlwaysApply`
+  - Linux: `./build/harness/add-rule.sh --name ... --description ... --always-apply`
 - Terraform 에러는 추측으로 고치지 말고 `plan` 출력을 근거로 수정한다.
 - AWS 인증 실패 → `.env` / `setup-aws` 확인을 먼저 한다.
 
@@ -56,5 +60,8 @@ Windows: `.\build\verify.sh` 대신 Git Bash 사용, 또는 `.\terraform.cmd`로
 
 ## 스모크 테스트 위치
 
-- `build/verify.sh` — 래퍼·env·init·validate 일괄 검증
+- `verify.cmd` / `build/verify.ps1` — Windows smoke 검증
+- `build/verify.sh` — Mac/Linux smoke 검증
+- `run.cmd` — Windows 단일 명령 (verify + terraform + hooks)
+- `build/docker/test-windows.sh` — Linux에서 Windows 워크플로 Docker 검증
 - `build/smoke/` — 최소 Terraform 설정 (도구 자체 테스트용)

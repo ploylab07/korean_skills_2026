@@ -1,0 +1,54 @@
+---
+description: Windows harness — 단일 명령 자동화, 규칙 추가, Docker 검증
+alwaysApply: true
+---
+
+# Windows Harness 자동화
+
+빌드·배포·테스트는 **Windows** 기준이다. Linux 개발 환경에서는 Docker로 Windows 워크플로를 검증한다.
+
+## 단일 명령 (Windows)
+
+프로젝트 루트에서:
+
+```powershell
+.\run.cmd                          # smoke verify
+.\run.cmd day1                     # verify + init/validate/plan
+.\run.cmd day1\test-1-2026-06-20   # 특정 과제 폴더
+.\run.cmd day1 apply               # verify + apply
+.\verify.cmd                       # 래퍼·환경만 검증
+```
+
+`run.cmd`는 자동으로 Windows용 Cursor hooks(`install-hooks.ps1`)를 설치한다.
+Linux 개발 시 hooks 복원: `./build/harness/install-hooks.sh`
+
+## Cursor 규칙 추가
+
+```powershell
+.\build\harness\add-rule.cmd -Name "my-rule" -Description "설명" -AlwaysApply -Body "## 내용"
+```
+
+또는:
+
+```powershell
+.\run.cmd add-rule -RuleName "my-rule" -RuleDescription "설명" -AlwaysApply
+```
+
+같은 실수가 2번 반복되면 위 명령으로 `.cursor/rules/`에 규칙을 추가한다.
+
+## Linux에서 Windows 워크플로 검증 (Docker)
+
+```bash
+./build/docker/test-windows.sh
+```
+
+PowerShell Core 컨테이너에서 `verify.ps1`, hooks, add-rule을 실행한다.
+
+## 작업 종료 루틴 (Windows)
+
+```powershell
+.\verify.cmd
+.\run.cmd <과제폴더> plan
+```
+
+채점 기준 항목을 하나씩 대조한 뒤 완료 보고한다.

@@ -13,6 +13,16 @@ alwaysApply: true
 2. **채점 기준** — 항목별 배점과 통과 조건을 확인하고, **만점(100%)을 목표**로 작업한다.
 3. **제공 파일·리소스** — 문제에서 주는 템플릿, AMI, Docker 이미지, 스크립트 등을 먼저 읽고 활용한다.
 4. **AWS 자격 증명** — `.env`가 없으면 사용자에게 키 3개를 물어보고 `setup-aws`로 저장한다. 이후 `terraform` 실행 시 자동 적용된다.
+   - Windows: `.\setup-aws.cmd`
+   - Mac/Linux: `./setup-aws`
+
+## 빌드·검증 환경 (Windows 우선)
+
+- **빌드·배포·테스트는 Windows 기준**으로 진행한다.
+- Windows 단일 명령: `.\run.cmd <과제폴더>` (verify + init/validate/plan + hooks 자동 설치)
+- Windows smoke 검증: `.\verify.cmd`
+- Linux 개발 시 Windows 워크플로 Docker 검증: `./build/docker/test-windows.sh`
+- Cursor 규칙 추가: `.\build\harness\add-rule.cmd` (Windows) / `./build/harness/add-rule.sh` (Linux)
 
 채점 기준을 충족하지 못하면 작업을 완료한 것으로 보지 않는다. 구현 후 채점 항목을 하나씩 대조해 검증한다.
 

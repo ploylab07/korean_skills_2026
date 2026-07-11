@@ -14,6 +14,6 @@ root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
 cat <<EOF
 {
-  "additional_context": "Terraform 파일이 수정됨: ${file_path}. 과제 폴더에서 검증을 실행하세요: ./terraform -chdir=${dir} validate && ./terraform -chdir=${dir} plan. 완료 전 ./build/verify.sh 도 실행하세요."
+  "additional_context": "Terraform 파일이 수정됨: ${file_path}. 검증: Windows → .\\run.cmd \"${dir}\" plan / Linux → ./terraform -chdir=${dir} validate && plan. 완료 전 verify도 실행."
 }
 EOF

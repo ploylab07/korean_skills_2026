@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    deprecated.daemonset.template.generation: "1"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"DaemonSet","metadata":{"annotations":{"deprecated.daemonset.template.generation":"1"},"creationTimestamp":"2026-06-25T05:47:01Z","generation":1,"name":"red-fluent-bit","namespace":"amazon-cloudwatch","resourceVersion":"12056","uid":"8dfdcfbf-8445-429a-9356-a21b1cb0fc15"},"spec":{"revisionHistoryLimit":10,"selector":{"matchLabels":{"app":"red-fluent-bit"}},"template":{"metadata":{"creationTimestamp":null,"labels":{"app":"red-fluent-bit"}},"spec":{"containers":[{"image":"163389715563.dkr.ecr.ap-northeast-2.amazonaws.com/addon/fluent-bit:2.32.2","imagePullPolicy":"IfNotPresent","name":"fluent-bit","resources":{},"terminationMessagePath":"/dev/termination-log","terminationMessagePolicy":"File","volumeMounts":[{"mountPath":"/var/log","name":"varlog"},{"mountPath":"/fluent-bit/etc/","name":"config"}]}],"dnsPolicy":"ClusterFirst","nodeSelector":{"role":"app"},"restartPolicy":"Always","schedulerName":"default-scheduler","securityContext":{},"serviceAccount":"fluent-bit","serviceAccountName":"fluent-bit","terminationGracePeriodSeconds":30,"tolerations":[{"effect":"NoSchedule","key":"app","operator":"Equal","value":"true"}],"volumes":[{"hostPath":{"path":"/var/log","type":""},"name":"varlog"},{"configMap":{"defaultMode":420,"name":"red-fluent-bit-config"},"name":"config"}]}},"updateStrategy":{"rollingUpdate":{"maxSurge":0,"maxUnavailable":1},"type":"RollingUpdate"}},"status":{"currentNumberScheduled":2,"desiredNumberScheduled":2,"numberAvailable":2,"numberMisscheduled":0,"numberReady":2,"observedGeneration":1,"updatedNumberScheduled":2}}
+  creationTimestamp: "2026-06-25T06:01:54Z"
+  generation: 1
+  name: red-fluent-bit
+  namespace: amazon-cloudwatch
+  resourceVersion: "16381"
+  uid: 765ead53-7baa-4b57-8f32-19da3dffe876
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: red-fluent-bit
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: red-fluent-bit
+    spec:
+      containers:
+      - image: 163389715563.dkr.ecr.ap-northeast-2.amazonaws.com/addon/fluent-bit:2.32.2
+        imagePullPolicy: IfNotPresent
+        name: fluent-bit
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/log
+          name: varlog
+        - mountPath: /fluent-bit/etc/
+          name: config
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        role: app
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: fluent-bit
+      serviceAccountName: fluent-bit
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: app
+        operator: Equal
+        value: "true"
+      volumes:
+      - hostPath:
+          path: /var/log
+          type: ""
+        name: varlog
+      - configMap:
+          defaultMode: 420
+          name: red-fluent-bit-config
+        name: config
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+status:
+  currentNumberScheduled: 2
+  desiredNumberScheduled: 2
+  numberAvailable: 2
+  numberMisscheduled: 0
+  numberReady: 2
+  observedGeneration: 1
+  updatedNumberScheduled: 2

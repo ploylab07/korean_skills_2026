@@ -1,0 +1,8 @@
+---
+description: {{DESCRIPTION}}
+{{GLOBS_LINE}}alwaysApply: {{ALWAYS_APPLY}}
+---
+
+# {{TITLE}}
+
+{{BODY}}
