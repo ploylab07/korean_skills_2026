@@ -1,0 +1,17 @@
+#!/bin/bash
+set -eux
+dnf install -y python3 awscli
+mkdir -p /opt/skills-lattice
+aws s3 cp s3://${bucket}/service_app.py /opt/skills-lattice/service_app.py --region ${region}
+cat > /etc/systemd/system/skills-service.service <<'UNIT'
+[Unit]
+Description=skills lattice service
+After=network.target
+[Service]
+ExecStart=/usr/bin/python3 /opt/skills-lattice/service_app.py
+Restart=always
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now skills-service

@@ -1,0 +1,27 @@
+#!/bin/bash
+set -eux
+dnf install -y python3 python3-pip awscli
+pip3 install boto3 pymongo
+mkdir -p /opt/skills-nosql
+curl -fsSL -o /opt/skills-nosql/global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+aws s3 cp s3://${bucket}/docdb_client.py /opt/skills-nosql/docdb_client.py --region ${region}
+aws s3 cp s3://${bucket}/retail_dataset.json /opt/skills-nosql/retail_dataset.json --region ${region}
+aws s3 cp s3://${bucket}/create_indexes.py /opt/skills-nosql/create_indexes.py --region ${region}
+for i in $(seq 1 60); do
+  python3 /opt/skills-nosql/docdb_client.py health && break || sleep 10
+done
+python3 /opt/skills-nosql/docdb_client.py seed || true
+python3 /opt/skills-nosql/create_indexes.py || true
+cat > /etc/systemd/system/skills-nosql.service <<'UNIT'
+[Unit]
+Description=skills nosql client
+After=network.target
+[Service]
+WorkingDirectory=/opt/skills-nosql
+ExecStart=/usr/bin/python3 /opt/skills-nosql/docdb_client.py serve
+Restart=always
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now skills-nosql
