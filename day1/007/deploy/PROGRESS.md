@@ -1,0 +1,12 @@
+# day1/007 progress
+- Networking: VPC/subnets/IGW/NAT/RT done
+- VPC endpoints: s3, ecr.api, ecr.dkr + extras
+- Flow log enabled
+- KMS: app/data/platform (MR multi-region) 90d rotation
+- S3 unicorn-web-<acct> + DynamoDB unicorn-concert-db
+- ECR unicorn-concert-app v1.0.0+latest (scratch image)
+- Lambda unicorn-get-booking-func
+- Audit role unicorn-audit-role
+- CloudShell VPC env unicorn-mark
+- EKS unicorn-eks-cluster creating
+- Competitor number: 007
