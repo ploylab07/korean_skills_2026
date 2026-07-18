@@ -7,20 +7,32 @@ alwaysApply: true
 
 빌드·배포·테스트는 **Windows** 기준이다. Linux 개발 환경에서는 Docker로 Windows 워크플로를 검증한다.
 
-## 단일 명령 (Windows)
+## 단일 명령 (Windows) — 대회 참가자
 
-프로젝트 루트에서:
+AI/Cursor 없이 과제 배포:
 
 ```powershell
-.\run.cmd                          # smoke verify
-.\run.cmd day1                     # verify + init/validate/plan
-.\run.cmd day1\test-1-2026-06-20   # 특정 과제 폴더
-.\run.cmd day1 apply               # verify + apply
-.\verify.cmd                       # 래퍼·환경만 검증
+.\start.cmd
 ```
 
-`run.cmd`는 자동으로 Windows용 Cursor hooks(`install-hooks.ps1`)를 설치한다.
-Linux 개발 시 hooks 복원: `./build/harness/install-hooks.sh`
+1. PowerShell / 인터넷 확인  
+2. Terraform 없으면 설치  
+3. `.env` 없으면 AWS 키 입력  
+4. 메뉴에서 과제 선택 (`day1\002|003|006|007`, `day2\002|007|008`)  
+5. apply로 서비스 배포  
+
+---
+
+## 개발용 (레포 유지보수, Cursor 허용 환경에서만)
+
+```powershell
+.\run.cmd day1\002 plan
+.\verify.cmd
+```
+
+`run.cmd`의 Cursor hooks는 **대회 현장과 무관**하며, 이 저장소를 Cursor로 다듬을 때만 쓴다.  
+Linux에서 Windows 스크립트 검증: `./build/docker/test-windows.sh`  
+hooks 복원(Linux): `./build/harness/install-hooks.sh`
 
 ## Cursor 규칙 추가
 

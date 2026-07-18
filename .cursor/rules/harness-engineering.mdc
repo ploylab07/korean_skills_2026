@@ -60,8 +60,9 @@ Linux 개발 시 Windows 워크플로 검증: `./build/docker/test-windows.sh`
 
 ## 스모크 테스트 위치
 
-- `verify.cmd` / `build/verify.ps1` — Windows smoke 검증
+- `start.cmd` / `build/start.ps1` — 대회용 원클릭 (확인 → Terraform → .env → 메뉴 → apply)
+- `verify.cmd` / `build/verify.ps1` — 개발용 smoke 검증
 - `build/verify.sh` — Mac/Linux smoke 검증
-- `run.cmd` — Windows 단일 명령 (verify + terraform + hooks)
+- `run.cmd` — 개발용 (verify + terraform + hooks, 대회 현장 비사용)
 - `build/docker/test-windows.sh` — Linux에서 Windows 워크플로 Docker 검증
 - `build/smoke/` — 최소 Terraform 설정 (도구 자체 테스트용)

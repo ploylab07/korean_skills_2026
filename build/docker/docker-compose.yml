@@ -1,11 +1,17 @@
+# Linux / Docker Desktop: Windows 워크플로 스모크 테스트
+#   docker compose -f build/docker/docker-compose.yml run --rm win-test
+# 또는:
+#   ./build/docker/test-windows.sh
 services:
   win-test:
     build:
       context: ../..
       dockerfile: build/docker/Dockerfile
+    image: korean-skills-2026-win-test
     volumes:
       - ../..:/repo
     environment:
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-northeast-2}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-northeast-2}
+      HARNESS_DOCKER_TEST: "1"

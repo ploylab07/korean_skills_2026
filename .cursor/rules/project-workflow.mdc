@@ -18,9 +18,9 @@ alwaysApply: true
 
 ## 빌드·검증 환경 (Windows 우선)
 
+- **대회 현장(AI 금지):** `.\start.cmd` 만 사용 — 설치 확인 → `.env` → 과제 선택 → apply
 - **빌드·배포·테스트는 Windows 기준**으로 진행한다.
-- Windows 단일 명령: `.\run.cmd <과제폴더>` (verify + init/validate/plan + hooks 자동 설치)
-- Windows smoke 검증: `.\verify.cmd`
+- 개발용: `.\run.cmd <과제폴더>`, `.\verify.cmd` (Cursor hooks 포함, 대회와 무관)
 - Linux 개발 시 Windows 워크플로 Docker 검증: `./build/docker/test-windows.sh`
 - Cursor 규칙 추가: `.\build\harness\add-rule.cmd` (Windows) / `./build/harness/add-rule.sh` (Linux)
 
