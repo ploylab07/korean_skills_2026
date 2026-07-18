@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: skillsmkt
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: order-processor
+  namespace: skillsmkt
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-processor
+  namespace: skillsmkt
+  labels:
+    app: order-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-processor
+  template:
+    metadata:
+      labels:
+        app: order-processor
+    spec:
+      serviceAccountName: order-processor
+      nodeSelector:
+        karpenter.sh/nodepool: skm-app-nodepool
+      tolerations:
+      - key: skm-app
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: order-processor
+        image: 163389715563.dkr.ecr.ap-northeast-2.amazonaws.com/skm-order-processor:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        env:
+        - name: AWS_REGION
+          value: ap-northeast-2
+        - name: SQS_QUEUE_URL
+          value: "https://sqs.ap-northeast-2.amazonaws.com/163389715563/skm-order-queue"
+        - name: PROCESSING_TIME
+          value: "3"
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-processor
+  namespace: skillsmkt
+spec:
+  selector:
+    app: order-processor
+  ports:
+  - port: 8080
+    targetPort: 8080

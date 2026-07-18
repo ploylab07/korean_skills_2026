@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: o11y
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: log-generator
+  namespace: o11y
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: log-generator
+  template:
+    metadata:
+      labels:
+        app: log-generator
+    spec:
+      containers:
+      - name: log-generator
+        image: 163389715563.dkr.ecr.ap-northeast-1.amazonaws.com/o11y-log-generator:latest
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: log-generator
+  namespace: o11y
+spec:
+  selector:
+    app: log-generator
+  ports:
+  - port: 80
+    targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: log-generator
+  namespace: o11y
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/load-balancer-name: o11y-app-alb
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    alb.ingress.kubernetes.io/tags: Name=o11y-app-alb
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: log-generator
+            port:
+              number: 80
