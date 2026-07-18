@@ -1,0 +1,87 @@
+== 제2과제 1모듈 DocumentDB based NoSQL Application 채점 출력 ==
+
+[1-1] DocumentDB Cluster 및 Instance 구성 (1.5점)
+-----------------------------------------------------------------------------------------------------------
+|                                           DescribeDBClusters                                            |
++-----------------+---------------------------------------------------------------------------------------+
+|  BackupRetention|  1                                                                                    |
+|  Cluster        |  skills-nosql-docdb-cluster                                                           |
+|  Encrypted      |  True                                                                                 |
+|  Endpoint       |  skills-nosql-docdb-cluster.cluster-ct4mycyw04px.ap-northeast-2.docdb.amazonaws.com   |
+|  Engine         |  docdb                                                                                |
+|  KmsKeyId       |  arn:aws:kms:ap-northeast-2:163389715563:key/26d2d63a-1254-46db-905d-11a2099cf9b7     |
+|  Port           |  27017                                                                                |
+|  Status         |  available                                                                            |
+|  Version        |  5.0.0                                                                                |
++-----------------+---------------------------------------------------------------------------------------+
+-----------------------------------------------
+|             DescribeDBInstances             |
++-----------+---------------------------------+
+|  AZ       |  ap-northeast-2a                |
+|  Class    |  db.t3.medium                   |
+|  Cluster  |  skills-nosql-docdb-cluster     |
+|  Engine   |  docdb                          |
+|  Instance |  skills-nosql-docdb-instance-1  |
+|  Status   |  available                      |
++-----------+---------------------------------+
+----------------------------------------------------------------------------------------------------
+|                                            DescribeKey                                           |
++------------+-------------------------------------------------------------------------------------+
+|  Arn       |  arn:aws:kms:ap-northeast-2:163389715563:key/26d2d63a-1254-46db-905d-11a2099cf9b7   |
+|  Enabled   |  True                                                                               |
+|  KeyManager|  CUSTOMER                                                                           |
+|  KeyUsage  |  ENCRYPT_DECRYPT                                                                    |
++------------+-------------------------------------------------------------------------------------+
+
+[1-2] Secret 및 Client EC2 구성 (1.5점)
+------------------------------------------------------------------------------------------------------------
+|                                              DescribeSecret                                              |
++----------+-----------------------------------------------------------------------------------------------+
+|  ARN     |  arn:aws:secretsmanager:ap-northeast-2:163389715563:secret:skills-nosql-docdb-secret-hQDdp8   |
+|  KmsKeyId|  None                                                                                         |
+|  Name    |  skills-nosql-docdb-secret                                                                    |
++----------+-----------------------------------------------------------------------------------------------+
+{
+  "username": "skillsadmin",
+  "host": "skills-nosql-docdb-cluster.cluster-ct4mycyw04px.ap-northeast-2.docdb.amazonaws.com",
+  "password_set": true
+}
+-------------------------------------------
+|            DescribeInstances            |
++-------------+---------------------------+
+|  InstanceId |  i-07265b5bba385ec52      |
+|  Name       |  skills-nosql-client-ec2  |
+|  PublicIp   |  52.78.180.50             |
+|  State      |  running                  |
+|  Type       |  t3.small                 |
++-------------+---------------------------+
+CLIENT_IP=52.78.180.50
+
+[1-3] Client Application 및 데이터 적재 상태 (1.5점)
+{"status": "ok", "database": "skills_retail", "port": 27017, "tls": true}
+http_code=200
+
+{"database": "skills_retail", "counts": {"orders": 8, "products": 6, "sessions": 3}, "dateFieldTypes": {"orders": {"createdAt": "datetime", "dueAt": "datetime"}, "products": {"updatedAt": "datetime"}, "sessions": {"lastSeen": "datetime", "expiresAt": "datetime"}}}
+http_code=200
+
+
+[1-4] DocumentDB Index 및 TTL 구성 (1.5점)
+{"indexes": {"orders": [{"v": 4, "key": {"_id": 1}, "name": "_id_", "ns": "skills_retail.orders"}, {"v": 4, "unique": true, "key": {"orderId": 1}, "name": "orderId_1", "ns": "skills_retail.orders"}, {"v": 4, "key": {"customerId": 1, "createdAt": -1}, "name": "customerId_1_createdAt_-1", "ns": "skills_retail.orders"}, {"v": 4, "key": {"status": 1, "dueAt": 1}, "name": "status_1_dueAt_1", "ns": "skills_retail.orders"}], "products": [{"v": 4, "key": {"_id": 1}, "name": "_id_", "ns": "skills_retail.products"}, {"v": 4, "unique": true, "key": {"productId": 1}, "name": "productId_1", "ns": "skills_retail.products"}, {"v": 4, "key": {"warehouseId": 1, "stock": 1}, "name": "warehouseId_1_stock_1", "ns": "skills_retail.products"}], "sessions": [{"v": 4, "key": {"_id": 1}, "name": "_id_", "ns": "skills_retail.sessions"}, {"v": 4, "unique": true, "key": {"sessionId": 1}, "name": "sessionId_1", "ns": "skills_retail.sessions"}, {"v": 4, "key": {"expiresAt": 1}, "name": "expiresAt_ttl", "ns": "skills_retail.sessions", "expireAfterSeconds": 0}, {"v": 4, "key": {"customerId": 1, "lastSeen": -1}, "name": "customerId_1_lastSeen_-1", "ns": "skills_retail.sessions"}]}}
+http_code=200
+
+
+[1-5] NoSQL 조회 기능 검증 (1.5점)
+{"order": {"orderId": "O-1001", "customerId": "C001", "status": "PENDING", "warehouseId": "W-A", "createdAt": "2026-06-01T09:10:00Z", "dueAt": "2026-06-04T00:00:00Z", "totalAmount": 135.5, "items": [{"productId": "P-RED-001", "qty": 2, "price": 45.0}, {"productId": "P-GRN-002", "qty": 1, "price": 45.5}]}}
+http_code=200
+
+{"customerId": "C001", "items": [{"orderId": "O-1006", "customerId": "C001", "status": "PENDING", "warehouseId": "W-A", "createdAt": "2026-06-03T08:00:00Z", "dueAt": "2026-06-07T00:00:00Z", "totalAmount": 56.0, "items": [{"productId": "P-BLK-005", "qty": 2, "price": 28.0}]}, {"orderId": "O-1001", "customerId": "C001", "status": "PENDING", "warehouseId": "W-A", "createdAt": "2026-06-01T09:10:00Z", "dueAt": "2026-06-04T00:00:00Z", "totalAmount": 135.5, "items": [{"productId": "P-RED-001", "qty": 2, "price": 45.0}, {"productId": "P-GRN-002", "qty": 1, "price": 45.5}]}, {"orderId": "O-1004", "customerId": "C001", "status": "CANCELLED", "warehouseId": "W-C", "createdAt": "2026-05-20T10:30:00Z", "dueAt": "2026-05-25T00:00:00Z", "totalAmount": 32.0, "items": [{"productId": "P-BLK-005", "qty": 1, "price": 32.0}]}]}
+http_code=200
+
+{"items": [{"orderId": "O-1001", "customerId": "C001", "status": "PENDING", "warehouseId": "W-A", "createdAt": "2026-06-01T09:10:00Z", "dueAt": "2026-06-04T00:00:00Z", "totalAmount": 135.5, "items": [{"productId": "P-RED-001", "qty": 2, "price": 45.0}, {"productId": "P-GRN-002", "qty": 1, "price": 45.5}]}, {"orderId": "O-1003", "customerId": "C003", "status": "PENDING", "warehouseId": "W-A", "createdAt": "2026-06-02T11:00:00Z", "dueAt": "2026-06-06T00:00:00Z", "totalAmount": 210.0, "items": [{"productId": "P-YLW-004", "qty": 3, "price": 70.0}]}, {"orderId": "O-1006", "customerId": "C001", "status": "PENDING", "warehouseId": "W-A", "createdAt": "2026-06-03T08:00:00Z", "dueAt": "2026-06-07T00:00:00Z", "totalAmount": 56.0, "items": [{"productId": "P-BLK-005", "qty": 2, "price": 28.0}]}]}
+http_code=200
+
+{"warehouseId": "W-A", "items": [{"productId": "P-BLU-003", "warehouseId": "W-A", "name": "Blue Widget", "category": "widget", "stock": 1, "reorderPoint": 5, "updatedAt": "2026-06-03T00:00:00Z"}, {"productId": "P-RED-001", "warehouseId": "W-A", "name": "Red Widget", "category": "widget", "stock": 4, "reorderPoint": 10, "updatedAt": "2026-06-03T00:00:00Z"}]}
+http_code=200
+
+
+Result file: asgmt2_module1_check_result.txt
