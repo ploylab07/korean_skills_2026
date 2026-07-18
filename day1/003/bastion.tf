@@ -1,0 +1,50 @@
+data "aws_ami" "al2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+}
+
+resource "aws_security_group" "bastion" {
+  name        = "wsc2026-bastion-sg"
+  description = "Bastion host for private EKS access via SSM"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "wsc2026-bastion-sg"
+  }
+}
+
+resource "aws_instance" "bastion" {
+  ami                    = data.aws_ami.al2023.id
+  instance_type          = "t3.small"
+  subnet_id              = aws_subnet.hub_a.id
+  vpc_security_group_ids = [aws_security_group.bastion.id, aws_security_group.mark.id]
+  iam_instance_profile   = aws_iam_instance_profile.bastion.name
+
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    set -euxo pipefail
+    dnf install -y kubectl
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+    unzip -qo /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+    aws eks update-kubeconfig --region ${var.region} --name ${local.cluster_name} || true
+  EOF
+  )
+
+  tags = {
+    Name = "wsc2026-bastion"
+  }
+
+  depends_on = [aws_eks_cluster.main]
+}
