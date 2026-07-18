@@ -1,0 +1,461 @@
+== 제2과제 4모듈 Event-driven Pod Scaling with AWS SQS 채점 출력 ==
+
+[4-1] EKS Cluster, VPC, Fargate Profile 구성 (1.25점)
+------------------------------------------------------------------------------------------
+|                                     DescribeCluster                                    |
++----------+-----------------------------------------------------------------------------+
+|  Endpoint|  https://379CACA42960FCF743A31B6F3B06D2A9.gr7.us-west-2.eks.amazonaws.com   |
+|  Name    |  skills-sqs-cluster                                                         |
+|  Role    |  arn:aws:iam::163389715563:role/skills-sqs-eks-cluster-role                 |
+|  Status  |  ACTIVE                                                                     |
+|  Version |  1.31                                                                       |
+|  Vpc     |  None                                                                       |
++----------+-----------------------------------------------------------------------------+
+fargate_profile=skills-sqs-fp-keda
+----------------------------------
+|     DescribeFargateProfile     |
++---------------------+----------+
+|        Name         | Status   |
++---------------------+----------+
+|  skills-sqs-fp-keda |  ACTIVE  |
++---------------------+----------+
+||           Selectors          ||
+|+------------------------------+|
+||           namespace          ||
+|+------------------------------+|
+||  keda                        ||
+|+------------------------------+|
+||            Subnets           ||
+|+------------------------------+|
+||  subnet-0bdfc64f52b46ba8b    ||
+||  subnet-08e1177f4c9b07d51    ||
+|+------------------------------+|
+fargate_profile=skills-sqs-fp-karpenter
+---------------------------------------
+|       DescribeFargateProfile        |
++--------------------------+----------+
+|           Name           | Status   |
++--------------------------+----------+
+|  skills-sqs-fp-karpenter |  ACTIVE  |
++--------------------------+----------+
+||             Selectors             ||
+|+-----------------------------------+|
+||             namespace             ||
+|+-----------------------------------+|
+||  karpenter                        ||
+|+-----------------------------------+|
+||              Subnets              ||
+|+-----------------------------------+|
+||  subnet-0bdfc64f52b46ba8b         ||
+||  subnet-08e1177f4c9b07d51         ||
+|+-----------------------------------+|
+Updated context arn:aws:eks:us-west-2:163389715563:cluster/skills-sqs-cluster in /root/.kube/skills-sqs.yaml
+NAME                                                 STATUS   ROLES    AGE     VERSION                INTERNAL-IP    EXTERNAL-IP   OS-IMAGE   KERNEL-VERSION   CONTAINER-RUNTIME
+fargate-ip-10-80-11-17.us-west-2.compute.internal    Ready    <none>   9m36s   v1.31.14-eks-434a228   10.80.11.17    <none>        Minimal    6.1.175          containerd://2.2.4+unknown
+fargate-ip-10-80-11-247.us-west-2.compute.internal   Ready    <none>   10m     v1.31.14-eks-434a228   10.80.11.247   <none>        Minimal    6.1.175          containerd://2.2.4+unknown
+fargate-ip-10-80-11-78.us-west-2.compute.internal    Ready    <none>   6m12s   v1.31.14-eks-434a228   10.80.11.78    <none>        Minimal    6.1.175          containerd://2.2.4+unknown
+fargate-ip-10-80-12-10.us-west-2.compute.internal    Ready    <none>   6m12s   v1.31.14-eks-434a228   10.80.12.10    <none>        Minimal    6.1.175          containerd://2.2.4+unknown
+fargate-ip-10-80-12-124.us-west-2.compute.internal   Ready    <none>   10m     v1.31.14-eks-434a228   10.80.12.124   <none>        Minimal    6.1.175          containerd://2.2.4+unknown
+fargate-ip-10-80-12-127.us-west-2.compute.internal   Ready    <none>   6m18s   v1.31.14-eks-434a228   10.80.12.127   <none>        Minimal    6.1.175          containerd://2.2.4+unknown
+fargate-ip-10-80-12-144.us-west-2.compute.internal   Ready    <none>   9m43s   v1.31.14-eks-434a228   10.80.12.144   <none>        Minimal    6.1.175          containerd://2.2.4+unknown
+
+[4-2] SQS Queue 및 IAM ServiceAccount 구성 (1.25점)
+QUEUE_URL=https://sqs.us-west-2.amazonaws.com/163389715563/skills-sqs-queue
+--------------------------------------------------------------------------------
+|                              GetQueueAttributes                              |
++------------------------------------------------------------------------------+
+||                                 Attributes                                 ||
+|+------------------------------------------------------+---------------------+|
+||                       QueueArn                       |  VisibilityTimeout  ||
+|+------------------------------------------------------+---------------------+|
+||  arn:aws:sqs:us-west-2:163389715563:skills-sqs-queue |  60                 ||
+|+------------------------------------------------------+---------------------+|
+keda/keda-operator role=arn:aws:iam::163389715563:role/skills-sqs-keda-operator-role
+karpenter/karpenter role=arn:aws:iam::163389715563:role/skills-sqs-karpenter-controller-role
+skills-sqs/sqs-worker-sa role=arn:aws:iam::163389715563:role/skills-sqs-worker-role
+
+[4-3] KEDA/Karpenter Controller Fargate 배포 구성 (1.25점)
+NAME                                              READY   UP-TO-DATE   AVAILABLE   AGE    CONTAINERS                        IMAGES                                            SELECTOR
+deployment.apps/keda-admission-webhooks           1/1     1            1           7m6s   keda-admission-webhooks           ghcr.io/kedacore/keda-admission-webhooks:2.16.1   app=keda-admission-webhooks
+deployment.apps/keda-operator                     1/1     1            1           7m6s   keda-operator                     ghcr.io/kedacore/keda:2.16.1                      app=keda-operator
+deployment.apps/keda-operator-metrics-apiserver   1/1     1            1           7m6s   keda-operator-metrics-apiserver   ghcr.io/kedacore/keda-metrics-apiserver:2.16.1    app=keda-operator-metrics-apiserver
+
+NAME                                                   READY   STATUS    RESTARTS   AGE    IP             NODE                                                 NOMINATED NODE   READINESS GATES
+pod/keda-admission-webhooks-7589cd46c7-kp295           1/1     Running   0          7m6s   10.80.12.10    fargate-ip-10-80-12-10.us-west-2.compute.internal    <none>           <none>
+pod/keda-operator-b479b44bd-462wk                      1/1     Running   0          7m6s   10.80.12.127   fargate-ip-10-80-12-127.us-west-2.compute.internal   <none>           <none>
+pod/keda-operator-metrics-apiserver-5bfbf87b69-vm8qw   1/1     Running   0          7m6s   10.80.11.78    fargate-ip-10-80-11-78.us-west-2.compute.internal    <none>           <none>
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES                                                                                                              SELECTOR
+deployment.apps/karpenter   2/2     2            2           10m   controller   public.ecr.aws/karpenter/controller:1.3.3@sha256:9920f14b8e302ff7a8a4154c7386acaf952009bc8f7d117c60f7a906b44d6281   app.kubernetes.io/instance=karpenter,app.kubernetes.io/name=karpenter
+
+NAME                             READY   STATUS    RESTARTS   AGE   IP             NODE                                                 NOMINATED NODE   READINESS GATES
+pod/karpenter-5654874fc8-2r478   1/1     Running   0          10m   10.80.11.17    fargate-ip-10-80-11-17.us-west-2.compute.internal    <none>           <none>
+pod/karpenter-5654874fc8-pl599   1/1     Running   0          10m   10.80.12.144   fargate-ip-10-80-12-144.us-west-2.compute.internal   <none>           <none>
+
+[4-4] Worker Application 및 KEDA ScaledObject 구성 (1.25점)
+NAME         READY   UP-TO-DATE   AVAILABLE   AGE    CONTAINERS   IMAGES                                                                  SELECTOR
+sqs-worker   0/0     0            0           6m5s   worker       163389715563.dkr.ecr.us-west-2.amazonaws.com/skills-sqs-worker:latest   app=sqs-worker
+serviceAccountName=sqs-worker-sa
+selector={"app":"sqs-worker"}
+podLabels={"app":"sqs-worker"}
+nodeSelector={"karpenter.sh/nodepool":"skills-sqs-nodepool","skills-nodepool":"event-worker"}
+env=[{"name":"SQS_QUEUE_URL","value":"https://sqs.us-west-2.amazonaws.com/163389715563/skills-sqs-queue"},{"name":"AWS_REGION","value":"us-west-2"},{"name":"PROCESSING_SECONDS","value":"5"}]
+image=163389715563.dkr.ecr.us-west-2.amazonaws.com/skills-sqs-worker:latest
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"keda.sh/v1alpha1","kind":"ScaledObject","metadata":{"annotations":{},"name":"sqs-worker-scaledobject","namespace":"skills-sqs"},"spec":{"cooldownPeriod":30,"maxReplicaCount":6,"minReplicaCount":0,"pollingInterval":15,"scaleTargetRef":{"name":"sqs-worker"},"triggers":[{"authenticationRef":{"name":"sqs-worker-trigger-auth"},"metadata":{"awsRegion":"us-west-2","identityOwner":"operator","queueLength":"2","queueURL":"https://sqs.us-west-2.amazonaws.com/163389715563/skills-sqs-queue"},"type":"aws-sqs-queue"}]}}
+  creationTimestamp: "2026-07-18T06:35:59Z"
+  finalizers:
+  - finalizer.keda.sh
+  generation: 1
+  labels:
+    scaledobject.keda.sh/name: sqs-worker-scaledobject
+  name: sqs-worker-scaledobject
+  namespace: skills-sqs
+  resourceVersion: "6719"
+  uid: 0f8ae92e-5645-4602-8290-d57aa52cf365
+spec:
+  cooldownPeriod: 30
+  maxReplicaCount: 6
+  minReplicaCount: 0
+  pollingInterval: 15
+  scaleTargetRef:
+    name: sqs-worker
+  triggers:
+  - authenticationRef:
+      name: sqs-worker-trigger-auth
+    metadata:
+      awsRegion: us-west-2
+      identityOwner: operator
+      queueLength: "2"
+      queueURL: https://sqs.us-west-2.amazonaws.com/163389715563/skills-sqs-queue
+    type: aws-sqs-queue
+status:
+  conditions:
+  - message: ScaledObject is defined correctly and is ready for scaling
+    reason: ScaledObjectReady
+    status: "True"
+    type: Ready
+  - message: Scaling is not performed because triggers are not active
+    reason: ScalerNotActive
+    status: "False"
+    type: Active
+  - status: Unknown
+    type: Fallback
+  - status: Unknown
+    type: Paused
+  externalMetricNames:
+  - s0-aws-sqs-skills-sqs-queue
+  hpaName: keda-hpa-sqs-worker-scaledobject
+  lastActiveTime: "2026-07-18T06:40:59Z"
+  originalReplicaCount: 0
+  scaleTargetGVKR:
+    group: apps
+    kind: Deployment
+    resource: deployments
+    version: v1
+  scaleTargetKind: apps/v1.Deployment
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"keda.sh/v1alpha1","kind":"TriggerAuthentication","metadata":{"annotations":{},"name":"sqs-worker-trigger-auth","namespace":"skills-sqs"},"spec":{"podIdentity":{"provider":"aws"}}}
+  creationTimestamp: "2026-07-18T06:35:59Z"
+  finalizers:
+  - finalizer.keda.sh
+  generation: 1
+  name: sqs-worker-trigger-auth
+  namespace: skills-sqs
+  resourceVersion: "4010"
+  uid: c642d213-e9bc-4f80-ab9e-4787964990ba
+spec:
+  podIdentity:
+    provider: aws
+status:
+  scaledobjects: sqs-worker-scaledobject
+
+[4-5] Karpenter NodePool, EC2NodeClass 및 Worker EC2 배치 구성 (1.25점)
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  annotations:
+    karpenter.sh/nodepool-hash: "5714399270752284601"
+    karpenter.sh/nodepool-hash-version: v3
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"karpenter.sh/v1","kind":"NodePool","metadata":{"annotations":{},"name":"skills-sqs-nodepool"},"spec":{"disruption":{"consolidateAfter":"1m","consolidationPolicy":"WhenEmptyOrUnderutilized"},"limits":{"cpu":"100"},"template":{"metadata":{"labels":{"skills-nodepool":"event-worker"}},"spec":{"nodeClassRef":{"group":"karpenter.k8s.aws","kind":"EC2NodeClass","name":"skills-sqs-nodeclass"},"requirements":[{"key":"kubernetes.amazonaws.com/instance-category","operator":"In","values":["t","m","c"]},{"key":"kubernetes.amazonaws.com/instance-cpu","operator":"In","values":["2","4"]},{"key":"kubernetes.amazonaws.com/instance-hypervisor","operator":"In","values":["nitro"]},{"key":"kubernetes.amazonaws.com/instance-generation","operator":"Gt","values":["2"]},{"key":"karpenter.sh/capacity-type","operator":"In","values":["on-demand"]}]}}}}
+  creationTimestamp: "2026-07-18T06:35:51Z"
+  generation: 2
+  name: skills-sqs-nodepool
+  resourceVersion: "5981"
+  uid: 6a6b485d-57fe-4257-bdba-a8c5114fbc33
+spec:
+  disruption:
+    budgets:
+    - nodes: 10%
+    consolidateAfter: 1m
+    consolidationPolicy: WhenEmptyOrUnderutilized
+  limits:
+    cpu: "100"
+  template:
+    metadata:
+      labels:
+        skills-nodepool: event-worker
+    spec:
+      expireAfter: 720h
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: skills-sqs-nodeclass
+      requirements:
+      - key: kubernetes.amazonaws.com/instance-category
+        operator: In
+        values:
+        - t
+        - m
+        - c
+      - key: kubernetes.amazonaws.com/instance-cpu
+        operator: In
+        values:
+        - "2"
+        - "4"
+      - key: kubernetes.amazonaws.com/instance-hypervisor
+        operator: In
+        values:
+        - nitro
+      - key: kubernetes.amazonaws.com/instance-generation
+        operator: Gt
+        values:
+        - "2"
+      - key: karpenter.sh/capacity-type
+        operator: In
+        values:
+        - on-demand
+      - key: kubernetes.io/arch
+        operator: In
+        values:
+        - amd64
+status:
+  conditions:
+  - lastTransitionTime: "2026-07-18T06:35:51Z"
+    message: ""
+    observedGeneration: 2
+    reason: ValidationSucceeded
+    status: "True"
+    type: ValidationSucceeded
+  - lastTransitionTime: "2026-07-18T06:36:06Z"
+    message: ""
+    observedGeneration: 2
+    reason: NodeClassReady
+    status: "True"
+    type: NodeClassReady
+  - lastTransitionTime: "2026-07-18T06:39:21Z"
+    message: ""
+    observedGeneration: 2
+    reason: Ready
+    status: "True"
+    type: Ready
+  resources:
+    cpu: "2"
+    ephemeral-storage: 20893676Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    memory: 1959216Ki
+    nodes: "1"
+    pods: "11"
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  annotations:
+    karpenter.k8s.aws/ec2nodeclass-hash: "17978345913253106019"
+    karpenter.k8s.aws/ec2nodeclass-hash-version: v4
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"karpenter.k8s.aws/v1","kind":"EC2NodeClass","metadata":{"annotations":{},"name":"skills-sqs-nodeclass"},"spec":{"amiSelectorTerms":[{"alias":"al2023@latest"}],"role":"skills-sqs-karpenter-node-role","securityGroupSelectorTerms":[{"tags":{"karpenter.sh/discovery":"skills-sqs-cluster"}}],"subnetSelectorTerms":[{"tags":{"karpenter.sh/discovery":"skills-sqs-cluster"}}],"tags":{"Name":"skills-sqs-karpenter-node"}}}
+  creationTimestamp: "2026-07-18T06:35:51Z"
+  finalizers:
+  - karpenter.k8s.aws/termination
+  generation: 1
+  name: skills-sqs-nodeclass
+  resourceVersion: "6250"
+  uid: 9f4ab6eb-b6de-4eff-8a88-030fadafff35
+spec:
+  amiSelectorTerms:
+  - alias: al2023@latest
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 1
+    httpTokens: required
+  role: skills-sqs-karpenter-node-role
+  securityGroupSelectorTerms:
+  - tags:
+      karpenter.sh/discovery: skills-sqs-cluster
+  subnetSelectorTerms:
+  - tags:
+      karpenter.sh/discovery: skills-sqs-cluster
+  tags:
+    Name: skills-sqs-karpenter-node
+status:
+  amis:
+  - id: ami-023fcc23f07f9b74b
+    name: amazon-eks-node-al2023-x86_64-nvidia-1.31-v20260714
+    requirements:
+    - key: kubernetes.io/arch
+      operator: In
+      values:
+      - amd64
+    - key: karpenter.k8s.aws/instance-gpu-count
+      operator: Exists
+  - id: ami-012bb1d90c0df054e
+    name: amazon-eks-node-al2023-x86_64-standard-1.31-v20260714
+    requirements:
+    - key: kubernetes.io/arch
+      operator: In
+      values:
+      - amd64
+    - key: karpenter.k8s.aws/instance-gpu-count
+      operator: DoesNotExist
+    - key: karpenter.k8s.aws/instance-accelerator-count
+      operator: DoesNotExist
+  - id: ami-03c22b75f5d335ede
+    name: amazon-eks-node-al2023-arm64-standard-1.31-v20260714
+    requirements:
+    - key: kubernetes.io/arch
+      operator: In
+      values:
+      - arm64
+    - key: karpenter.k8s.aws/instance-gpu-count
+      operator: DoesNotExist
+    - key: karpenter.k8s.aws/instance-accelerator-count
+      operator: DoesNotExist
+  - id: ami-047eab37ac7e449cd
+    name: amazon-eks-node-al2023-x86_64-neuron-1.31-v20260714
+    requirements:
+    - key: kubernetes.io/arch
+      operator: In
+      values:
+      - amd64
+    - key: karpenter.k8s.aws/instance-accelerator-count
+      operator: Exists
+  conditions:
+  - lastTransitionTime: "2026-07-18T06:35:52Z"
+    message: ""
+    observedGeneration: 1
+    reason: AMIsReady
+    status: "True"
+    type: AMIsReady
+  - lastTransitionTime: "2026-07-18T06:35:52Z"
+    message: ""
+    observedGeneration: 1
+    reason: SubnetsReady
+    status: "True"
+    type: SubnetsReady
+  - lastTransitionTime: "2026-07-18T06:35:52Z"
+    message: ""
+    observedGeneration: 1
+    reason: SecurityGroupsReady
+    status: "True"
+    type: SecurityGroupsReady
+  - lastTransitionTime: "2026-07-18T06:35:52Z"
+    message: ""
+    observedGeneration: 1
+    reason: InstanceProfileReady
+    status: "True"
+    type: InstanceProfileReady
+  - lastTransitionTime: "2026-07-18T06:36:06Z"
+    message: ""
+    observedGeneration: 1
+    reason: ValidationSucceeded
+    status: "True"
+    type: ValidationSucceeded
+  - lastTransitionTime: "2026-07-18T06:36:06Z"
+    message: ""
+    observedGeneration: 1
+    reason: Ready
+    status: "True"
+    type: Ready
+  instanceProfile: skills-sqs-cluster_6046521260945205563
+  securityGroups:
+  - id: sg-0a3979915900e3111
+    name: eks-cluster-sg-skills-sqs-cluster-50941175
+  subnets:
+  - id: subnet-04099ba5a9d66ee31
+    zone: us-west-2b
+    zoneID: usw2-az1
+  - id: subnet-08e1177f4c9b07d51
+    zone: us-west-2b
+    zoneID: usw2-az1
+  - id: subnet-0b8aad84620f6d67f
+    zone: us-west-2a
+    zoneID: usw2-az2
+  - id: subnet-0bdfc64f52b46ba8b
+    zone: us-west-2a
+    zoneID: usw2-az2
+NAME                                       STATUS   ROLES    AGE     VERSION                INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                        KERNEL-VERSION                    CONTAINER-RUNTIME
+ip-10-80-11-9.us-west-2.compute.internal   Ready    <none>   2m23s   v1.31.14-eks-8f14419   10.80.11.9    <none>        Amazon Linux 2023.12.20260710   6.1.176-221.360.amzn2023.x86_64   containerd://2.2.4+unknown
+No resources found in skills-sqs namespace.
+
+[4-6] SQS 기반 Scale Out 및 처리 기능 검증 (1.25점)
+주의: 본 항목은 채점기준표에 따라 SQS 메시지 12개를 생성합니다.
+sent=12
+after_60s
+--------------------------------------------------
+|               GetQueueAttributes               |
++------------------------------------------------+
+||                  Attributes                  ||
+|+-----------------------------------------+----+|
+||  ApproximateNumberOfMessages            |  0 ||
+||  ApproximateNumberOfMessagesDelayed     |  0 ||
+||  ApproximateNumberOfMessagesNotVisible  |  0 ||
+|+-----------------------------------------+----+|
+NAME         READY   UP-TO-DATE   AVAILABLE   AGE
+sqs-worker   6/6     6            6           7m31s
+NAME                          READY   STATUS    RESTARTS   AGE   IP             NODE                                       NOMINATED NODE   READINESS GATES
+sqs-worker-865f6d4bf7-6nrsj   1/1     Running   0          60s   10.80.11.143   ip-10-80-11-9.us-west-2.compute.internal   <none>           <none>
+sqs-worker-865f6d4bf7-dj8zj   1/1     Running   0          60s   10.80.11.176   ip-10-80-11-9.us-west-2.compute.internal   <none>           <none>
+sqs-worker-865f6d4bf7-j4nv8   1/1     Running   0          45s   10.80.11.60    ip-10-80-11-9.us-west-2.compute.internal   <none>           <none>
+sqs-worker-865f6d4bf7-jpkmb   1/1     Running   0          45s   10.80.11.36    ip-10-80-11-9.us-west-2.compute.internal   <none>           <none>
+sqs-worker-865f6d4bf7-pkxwd   1/1     Running   0          61s   10.80.11.163   ip-10-80-11-9.us-west-2.compute.internal   <none>           <none>
+sqs-worker-865f6d4bf7-tgmnx   1/1     Running   0          60s   10.80.11.75    ip-10-80-11-9.us-west-2.compute.internal   <none>           <none>
+NAME                                       STATUS   ROLES    AGE     VERSION                INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                        KERNEL-VERSION                    CONTAINER-RUNTIME
+ip-10-80-11-9.us-west-2.compute.internal   Ready    <none>   3m44s   v1.31.14-eks-8f14419   10.80.11.9    <none>        Amazon Linux 2023.12.20260710   6.1.176-221.360.amzn2023.x86_64   containerd://2.2.4+unknown
+NAME                        TYPE       CAPACITY    ZONE         NODE                                       READY   AGE
+skills-sqs-nodepool-b79r7   t3.small   on-demand   us-west-2a   ip-10-80-11-9.us-west-2.compute.internal   True    4m7s
+after_120s
+--------------------------------------------------
+|               GetQueueAttributes               |
++------------------------------------------------+
+||                  Attributes                  ||
+|+-----------------------------------------+----+|
+||  ApproximateNumberOfMessages            |  0 ||
+||  ApproximateNumberOfMessagesDelayed     |  0 ||
+||  ApproximateNumberOfMessagesNotVisible  |  0 ||
+|+-----------------------------------------+----+|
+NAME         READY   UP-TO-DATE   AVAILABLE   AGE
+sqs-worker   0/0     0            0           8m38s
+No resources found in skills-sqs namespace.
+NAME                                       STATUS   ROLES    AGE     VERSION                INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                        KERNEL-VERSION                    CONTAINER-RUNTIME
+ip-10-80-11-9.us-west-2.compute.internal   Ready    <none>   4m50s   v1.31.14-eks-8f14419   10.80.11.9    <none>        Amazon Linux 2023.12.20260710   6.1.176-221.360.amzn2023.x86_64   containerd://2.2.4+unknown
+NAME                        TYPE       CAPACITY    ZONE         NODE                                       READY   AGE
+skills-sqs-nodepool-b79r7   t3.small   on-demand   us-west-2a   ip-10-80-11-9.us-west-2.compute.internal   True    5m14s
+after_180s
+--------------------------------------------------
+|               GetQueueAttributes               |
++------------------------------------------------+
+||                  Attributes                  ||
+|+-----------------------------------------+----+|
+||  ApproximateNumberOfMessages            |  0 ||
+||  ApproximateNumberOfMessagesDelayed     |  0 ||
+||  ApproximateNumberOfMessagesNotVisible  |  0 ||
+|+-----------------------------------------+----+|
+NAME         READY   UP-TO-DATE   AVAILABLE   AGE
+sqs-worker   0/0     0            0           9m44s
+No resources found in skills-sqs namespace.
+NAME                                       STATUS   ROLES    AGE     VERSION                INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                        KERNEL-VERSION                    CONTAINER-RUNTIME
+ip-10-80-11-9.us-west-2.compute.internal   Ready    <none>   5m57s   v1.31.14-eks-8f14419   10.80.11.9    <none>        Amazon Linux 2023.12.20260710   6.1.176-221.360.amzn2023.x86_64   containerd://2.2.4+unknown
+NAME                        TYPE       CAPACITY    ZONE         NODE                                       READY   AGE
+skills-sqs-nodepool-b79r7   t3.small   on-demand   us-west-2a   ip-10-80-11-9.us-west-2.compute.internal   True    6m20s
+
+Result file: asgmt2_module4_check_result.txt
