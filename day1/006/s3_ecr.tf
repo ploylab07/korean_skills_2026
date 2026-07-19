@@ -34,7 +34,7 @@ resource "aws_s3_object" "index" {
   key          = "index.html"
   source       = "${path.module}/index.html"
   content_type = "text/html"
-  etag         = filemd5("${path.module}/index.html")
+  source_hash  = filemd5("${path.module}/index.html")
 
   server_side_encryption = "aws:kms"
   kms_key_id             = aws_kms_key.s3.arn
@@ -45,7 +45,7 @@ resource "aws_s3_object" "main_jpeg" {
   key          = "main.jpeg"
   source       = "${path.module}/main.jpeg"
   content_type = "image/jpeg"
-  etag         = filemd5("${path.module}/main.jpeg")
+  source_hash  = filemd5("${path.module}/main.jpeg")
 
   server_side_encryption = "aws:kms"
   kms_key_id             = aws_kms_key.s3.arn

@@ -4,8 +4,8 @@ rm -rf ~/.aws
 mkdir -p ~/.aws
 echo "사전준비 시작!"
 
-export DistributionID="<CloudFront_Distribution_ID>"
-export BUCKET="gj2026-static-<비번호>"
+export DistributionID="E3NBB3DEZG915A"
+export BUCKET="gj2026-static-006"
 export CF_DOMAIN=$(aws cloudfront get-distribution --id ${DistributionID} --query "Distribution.DomainName" --output text)
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 

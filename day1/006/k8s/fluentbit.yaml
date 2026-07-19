@@ -1,32 +1,4 @@
 apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: fluent-bit
-  namespace: logging
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: fluent-bit
-rules:
-  - apiGroups: [""]
-    resources: ["namespaces", "pods"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: fluent-bit
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: fluent-bit
-subjects:
-  - kind: ServiceAccount
-    name: fluent-bit
-    namespace: logging
----
-apiVersion: v1
 kind: ConfigMap
 metadata:
   name: fluent-bit-config
@@ -43,10 +15,10 @@ data:
         Name              tail
         Tag               book.*
         Path              /var/log/containers/book-*.log
-        Parser            docker
         Mem_Buf_Limit     5MB
         Skip_Long_Lines   On
         Refresh_Interval  5
+        DB                /var/log/flb_book.db
 
     [FILTER]
         Name                kubernetes
@@ -55,7 +27,7 @@ data:
         Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
         Merge_Log           On
-        Keep_Log            Off
+        Keep_Log            On
 
     [FILTER]
         Name    grep
@@ -63,19 +35,11 @@ data:
         Exclude log /health
 
     [FILTER]
-        Name          nest
+        Name          parser
         Match         book.*
-        Operation     lift
-        Nested_under  log
-        Add_prefix    
-
-    [FILTER]
-        Name    modify
-        Match   book.*
-        Rename  remote_addr remote_addr
-        Rename  method method
-        Rename  path path
-        Rename  status status_code
+        Key_Name      log
+        Parser        book_access
+        Reserve_Data  Off
 
     [OUTPUT]
         Name                cloudwatch_logs
@@ -83,15 +47,13 @@ data:
         region              ap-northeast-2
         log_group_name      /eks/book-svc/access
         log_stream_prefix   /book-svc/
-        auto_create_group   true
+        auto_create_group   On
         log_key             log
   parsers.conf: |
     [PARSER]
-        Name        docker
-        Format      json
-        Time_Key    time
-        Time_Format %Y-%m-%dT%H:%M:%S.%L
-        Time_Keep   On
+        Name        book_access
+        Format      regex
+        Regex       ^.*access method=(?<method>\S+) path=(?<path>\S+) status=(?<status_code>\d+) .* remote_addr=(?<remote_addr>\S+).*
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -112,7 +74,7 @@ spec:
         - operator: Exists
       containers:
         - name: fluent-bit
-          image: public.ecr.aws/aws-observability/aws-for-fluent-bit:stable
+          image: 163389715563.dkr.ecr.ap-northeast-2.amazonaws.com/ecr-public/aws-observability/aws-for-fluent-bit:stable
           volumeMounts:
             - name: varlog
               mountPath: /var/log

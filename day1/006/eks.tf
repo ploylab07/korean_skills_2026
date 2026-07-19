@@ -207,3 +207,22 @@ resource "aws_eks_pod_identity_association" "book" {
   role_arn        = aws_iam_role.book_app.arn
   depends_on      = [aws_eks_addon.pod_identity]
 }
+
+# Managed node groups use the cluster primary SG; allow ALB health/traffic
+resource "aws_security_group_rule" "cluster_sg_from_alb" {
+  type                     = "ingress"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  source_security_group_id = aws_security_group.alb.id
+}
+
+resource "aws_security_group_rule" "cluster_sg_from_alb_grafana" {
+  type                     = "ingress"
+  from_port                = 3000
+  to_port                  = 3000
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  source_security_group_id = aws_security_group.alb.id
+}
