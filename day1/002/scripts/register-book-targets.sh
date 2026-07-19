@@ -1,8 +1,12 @@
 #!/bin/bash
 set -euo pipefail
-export KUBECONFIG="${KUBECONFIG:-/root/.kube/wskorea26.yaml}"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-2}"
+if [[ -z "${KUBECONFIG:-}" ]]; then
+  export KUBECONFIG="${HOME}/.kube/wskorea26.yaml"
+  aws eks update-kubeconfig --region "$AWS_DEFAULT_REGION" --name wskorea26-cluster --kubeconfig "$KUBECONFIG" >/dev/null
+fi
 BOOK_TG=$(aws elbv2 describe-target-groups --names wskorea26-book-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
-EXISTING=$(aws elbv2 describe-target-health --target-group-arn "$BOOK_TG" --query 'TargetHealthDescriptions[].Target.Id' --output text)
+EXISTING=$(aws elbv2 describe-target-health --target-group-arn "$BOOK_TG" --query 'TargetHealthDescriptions[].Target.Id' --output text || true)
 for id in $EXISTING; do
   [[ -n "$id" && "$id" != "None" ]] && aws elbv2 deregister-targets --target-group-arn "$BOOK_TG" --targets Id=$id,Port=8080 || true
 done
