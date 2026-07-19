@@ -25,21 +25,10 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
-data "aws_eks_cluster_auth" "sqs" {
-  provider = aws.oregon
-  name     = aws_eks_cluster.sqs.name
-}
-
-provider "kubernetes" {
-  host                   = aws_eks_cluster.sqs.endpoint
-  cluster_ca_certificate = base64decode(aws_eks_cluster.sqs.certificate_authority[0].data)
-  token                  = data.aws_eks_cluster_auth.sqs.token
-}
-
+# Helm/kubectl은 apply 시점 kubeconfig(/tmp/skills-sqs-tf.kubeconfig)를 사용.
+# kubernetes_manifest 미사용 — 클러스터 생성 전 plan 실패 방지.
 provider "helm" {
   kubernetes {
-    host                   = aws_eks_cluster.sqs.endpoint
-    cluster_ca_certificate = base64decode(aws_eks_cluster.sqs.certificate_authority[0].data)
-    token                  = data.aws_eks_cluster_auth.sqs.token
+    config_path = "/tmp/skills-sqs-tf.kubeconfig"
   }
 }

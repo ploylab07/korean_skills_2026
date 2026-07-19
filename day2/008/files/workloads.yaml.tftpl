@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: skills-sqs
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: skills-sqs-nodeclass
+spec:
+  role: ${node_role_name}
+  amiSelectorTerms:
+    - alias: al2023@latest
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: skills-sqs-cluster
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: skills-sqs-cluster
+  tags:
+    Name: skills-sqs-karpenter-node
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: skills-sqs-nodepool
+spec:
+  template:
+    metadata:
+      labels:
+        skills-nodepool: event-worker
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: skills-sqs-nodeclass
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.amazonaws.com/instance-category
+          operator: In
+          values: ["t", "m", "c"]
+        - key: kubernetes.amazonaws.com/instance-cpu
+          operator: In
+          values: ["2", "4"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+  limits:
+    cpu: "100"
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sqs-worker-sa
+  namespace: skills-sqs
+  annotations:
+    eks.amazonaws.com/role-arn: ${worker_role_arn}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqs-worker
+  namespace: skills-sqs
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: sqs-worker
+  template:
+    metadata:
+      labels:
+        app: sqs-worker
+    spec:
+      serviceAccountName: sqs-worker-sa
+      nodeSelector:
+        karpenter.sh/nodepool: skills-sqs-nodepool
+        skills-nodepool: event-worker
+      containers:
+        - name: worker
+          image: ${worker_image}
+          env:
+            - name: SQS_QUEUE_URL
+              value: "${queue_url}"
+            - name: AWS_REGION
+              value: us-west-2
+            - name: PROCESSING_SECONDS
+              value: "5"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: sqs-worker-trigger-auth
+  namespace: skills-sqs
+spec:
+  podIdentity:
+    provider: aws
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: sqs-worker-scaledobject
+  namespace: skills-sqs
+spec:
+  scaleTargetRef:
+    name: sqs-worker
+  minReplicaCount: 0
+  maxReplicaCount: 6
+  pollingInterval: 15
+  cooldownPeriod: 30
+  triggers:
+    - type: aws-sqs-queue
+      authenticationRef:
+        name: sqs-worker-trigger-auth
+      metadata:
+        queueURL: "${queue_url}"
+        queueLength: "2"
+        awsRegion: us-west-2
+        identityOwner: operator
