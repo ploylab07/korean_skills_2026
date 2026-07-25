@@ -1,27 +1,8 @@
-resource "null_resource" "taint_app_nodes" {
-  triggers = {
-    nodegroup = aws_eks_node_group.app.id
-  }
-
-  provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
-    command     = <<-EOT
-      set -e
-      aws eks update-kubeconfig --region ${var.region} --name ${aws_eks_cluster.main.name}
-      for n in $(kubectl get nodes -l node-type=app -o name); do
-        kubectl taint nodes "$${n#node/}" node-type=app:NoSchedule --overwrite || true
-      done
-    EOT
-  }
-
-  depends_on = [aws_eks_node_group.app]
-}
-
 resource "kubernetes_namespace" "wskorea26" {
   metadata {
     name = "wskorea26"
   }
-  depends_on = [null_resource.taint_app_nodes]
+  depends_on = [aws_eks_node_group.app]
 }
 
 resource "kubernetes_namespace" "monitoring" {
@@ -217,19 +198,28 @@ resource "helm_release" "fluent_bit" {
   depends_on = [aws_eks_node_group.addon]
 }
 
-# Register book pod IPs to ALB TG (IP mode)
+# Register book / grafana pod IPs to ALB TGs (IP mode)
 resource "null_resource" "register_book_targets" {
   triggers = {
     deployment = kubernetes_deployment.book.id
+    grafana    = helm_release.kube_prometheus_stack.id
   }
 
   provisioner "local-exec" {
-    command = "${path.module}/scripts/register-book-targets.sh"
+    interpreter = ["/bin/bash", "-c"]
+    command     = "sleep 45; ${path.module}/scripts/register-book-targets.sh"
     environment = {
-      KUBECONFIG = coalesce(pathexpand("~/.kube/wskorea26.yaml"), pathexpand("~/.kube/config"))
+      KUBECONFIG         = "${pathexpand("~")}/.kube/wskorea26.yaml"
       AWS_DEFAULT_REGION = var.region
+      CLUSTER_NAME       = aws_eks_cluster.main.name
     }
   }
 
-  depends_on = [kubernetes_deployment.book, aws_lb_target_group.book]
+  depends_on = [
+    kubernetes_deployment.book,
+    helm_release.kube_prometheus_stack,
+    aws_lb_target_group.book,
+    aws_lb_target_group.grafana,
+    aws_security_group_rule.cluster_from_alb_8080,
+  ]
 }

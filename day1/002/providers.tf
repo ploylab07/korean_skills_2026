@@ -8,15 +8,26 @@ provider "aws" {
   }
 }
 
-# kubeconfig는 EKS 생성 후 scripts/kubeconfig.sh 또는 null_resource로 갱신
 provider "kubernetes" {
-  config_path    = coalesce(var.kubeconfig_path, "${pathexpand("~")}/.kube/wskorea26.yaml")
-  config_context = var.kubeconfig_context
+  host                   = aws_eks_cluster.main.endpoint
+  cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.main.name, "--region", var.region]
+  }
 }
 
 provider "helm" {
   kubernetes {
-    config_path    = coalesce(var.kubeconfig_path, "${pathexpand("~")}/.kube/wskorea26.yaml")
-    config_context = var.kubeconfig_context
+    host                   = aws_eks_cluster.main.endpoint
+    cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", aws_eks_cluster.main.name, "--region", var.region]
+    }
   }
 }

@@ -24,7 +24,7 @@ spec:
         effect: NoSchedule
       containers:
       - name: book
-        image: 163389715563.dkr.ecr.ap-northeast-2.amazonaws.com/wskorea26-book-repo:stable
+        image: PLACEHOLDER.dkr.ecr.ap-northeast-2.amazonaws.com/wskorea26-book-repo:stable
         ports:
         - containerPort: 8080
         env:
