@@ -3,24 +3,33 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(cd ../.. && pwd)"
-# shellcheck disable=SC1091
 set -a; source "$ROOT/.env"; set +a
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-2}"
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/wskorea26.yaml}"
 
 source scripts/ids.env
 
 TF="$ROOT/terraform"
-$TF -chdir="$(pwd)" init -upgrade
+$TF -chdir="$(pwd)" init -input=false >/dev/null
 
 imp() {
   local addr="$1" id="$2"
   if $TF -chdir="$(pwd)" state list 2>/dev/null | grep -qxF "$addr"; then
     echo "skip $addr"
   else
-    echo "import $addr"
-    $TF -chdir="$(pwd)" import -input=false "$addr" "$id" || echo "WARN: failed $addr"
+    echo "import $addr <= $id"
+    if $TF -chdir="$(pwd)" import -input=false "$addr" "$id" 2>/tmp/tf-imp-err.txt; then
+      echo "  ok"
+    else
+      echo "  FAIL: $(tail -3 /tmp/tf-imp-err.txt | tr '\n' ' ')"
+    fi
   fi
 }
+
+# Fix IMDS hop on app nodes for pod credentials
+for id in $(aws ec2 describe-instances --filters "Name=tag:eks:cluster-name,Values=wskorea26-cluster" "Name=instance-state-name,Values=running" --query 'Reservations[].Instances[].InstanceId' --output text); do
+  aws ec2 modify-instance-metadata-options --instance-id "$id" --http-put-response-hop-limit 2 --http-tokens required >/dev/null || true
+done
 
 imp aws_vpc.main "$VPC_ID"
 imp aws_internet_gateway.main "$IGW_ID"
@@ -28,26 +37,20 @@ imp aws_subnet.pub_c "$PUB_C"
 imp aws_subnet.pub_d "$PUB_D"
 imp aws_subnet.priv_c "$PRIV_C"
 imp aws_subnet.priv_d "$PRIV_D"
-imp aws_eip.nat_c eipalloc-011ac3742964577a3
-imp aws_eip.nat_d eipalloc-0221ccb1707dc6e6d
+imp aws_eip.nat_c "$EIP_C"
+imp aws_eip.nat_d "$EIP_D"
 imp aws_nat_gateway.nat_c "$NGW_C"
 imp aws_nat_gateway.nat_d "$NGW_D"
 imp aws_route_table.public "$PUB_RTB"
 imp aws_route_table.private_c "$PRIV_RTB_C"
 imp aws_route_table.private_d "$PRIV_RTB_D"
-imp 'aws_route.public_igw' "${PUB_RTB}_0.0.0.0/0"
-imp 'aws_route.private_c_nat' "${PRIV_RTB_C}_0.0.0.0/0"
-imp 'aws_route.private_d_nat' "${PRIV_RTB_D}_0.0.0.0/0"
-
-# associations — need association ids
-PUB_C_ASSOC=$(aws ec2 describe-route-tables --route-table-ids "$PUB_RTB" --query "RouteTables[0].Associations[?SubnetId=='$PUB_C'].RouteTableAssociationId|[0]" --output text)
-PUB_D_ASSOC=$(aws ec2 describe-route-tables --route-table-ids "$PUB_RTB" --query "RouteTables[0].Associations[?SubnetId=='$PUB_D'].RouteTableAssociationId|[0]" --output text)
-PRIV_C_ASSOC=$(aws ec2 describe-route-tables --route-table-ids "$PRIV_RTB_C" --query "RouteTables[0].Associations[?SubnetId=='$PRIV_C'].RouteTableAssociationId|[0]" --output text)
-PRIV_D_ASSOC=$(aws ec2 describe-route-tables --route-table-ids "$PRIV_RTB_D" --query "RouteTables[0].Associations[?SubnetId=='$PRIV_D'].RouteTableAssociationId|[0]" --output text)
-imp aws_route_table_association.pub_c "$PUB_C_ASSOC"
-imp aws_route_table_association.pub_d "$PUB_D_ASSOC"
-imp aws_route_table_association.priv_c "$PRIV_C_ASSOC"
-imp aws_route_table_association.priv_d "$PRIV_D_ASSOC"
+imp aws_route.public_igw "${PUB_RTB}_0.0.0.0/0"
+imp aws_route.private_c_nat "${PRIV_RTB_C}_0.0.0.0/0"
+imp aws_route.private_d_nat "${PRIV_RTB_D}_0.0.0.0/0"
+imp aws_route_table_association.pub_c "${PUB_C}/${PUB_RTB}"
+imp aws_route_table_association.pub_d "${PUB_D}/${PUB_RTB}"
+imp aws_route_table_association.priv_c "${PRIV_C}/${PRIV_RTB_C}"
+imp aws_route_table_association.priv_d "${PRIV_D}/${PRIV_RTB_D}"
 
 imp aws_security_group.env "$ENV_SG"
 imp aws_security_group.eks_cluster "$CLUSTER_SG"
@@ -77,6 +80,16 @@ imp aws_dynamodb_table.data wskorea26-data-table
 imp aws_iam_role.eks_cluster wskorea26-eks-cluster-role
 imp aws_iam_role.eks_node wskorea26-eks-node-role
 imp aws_iam_role.lambda wskorea26-book-lambda-role
+imp aws_iam_role_policy_attachment.eks_cluster_policy "wskorea26-eks-cluster-role/arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+imp aws_iam_role_policy_attachment.eks_vpc_controller "wskorea26-eks-cluster-role/arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+imp aws_iam_role_policy_attachment.node_worker "wskorea26-eks-node-role/arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+imp aws_iam_role_policy_attachment.node_cni "wskorea26-eks-node-role/arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+imp aws_iam_role_policy_attachment.node_ecr "wskorea26-eks-node-role/arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+imp aws_iam_role_policy_attachment.node_ssm "wskorea26-eks-node-role/arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+imp aws_iam_role_policy_attachment.node_cw "wskorea26-eks-node-role/arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+imp aws_iam_role_policy_attachment.lambda_basic "wskorea26-book-lambda-role/arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+imp aws_iam_role_policy.node_ddb "wskorea26-eks-node-role:ddb-access"
+imp aws_iam_role_policy.lambda_ddb "wskorea26-book-lambda-role:ddb-access"
 
 imp aws_eks_cluster.main wskorea26-cluster
 imp aws_eks_node_group.addon wskorea26-cluster:wskorea26-addon-ng
@@ -100,16 +113,15 @@ imp aws_lb_listener.grafana "$GRAFANA_LISTENER"
 
 imp aws_cloudfront_function.rewrite wskorea26-book-rewrite
 imp aws_cloudfront_distribution.main "$CF_ID"
+imp aws_s3_bucket_policy.web "$BUCKET"
 
-# K8s / Helm
-export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/wskorea26.yaml}"
-aws eks update-kubeconfig --region ap-northeast-2 --name wskorea26-cluster --kubeconfig "$KUBECONFIG"
+aws eks update-kubeconfig --region ap-northeast-2 --name wskorea26-cluster --alias wskorea26 --kubeconfig "$KUBECONFIG" >/dev/null
 imp kubernetes_namespace.wskorea26 wskorea26
 imp kubernetes_namespace.monitoring monitoring
-imp 'kubernetes_deployment.book' wskorea26/book
-imp 'kubernetes_service.book' wskorea26/book
-imp 'kubernetes_config_map.dashboard' monitoring/wskorea26-dashboard
-imp 'helm_release.kube_prometheus_stack' monitoring/kps
-imp 'helm_release.fluent_bit' monitoring/aws-for-fluent-bit
+imp kubernetes_deployment.book wskorea26/book
+imp kubernetes_service.book wskorea26/book
+imp kubernetes_config_map.dashboard monitoring/wskorea26-dashboard
+imp helm_release.kube_prometheus_stack monitoring/kps
+imp helm_release.fluent_bit monitoring/aws-for-fluent-bit
 
-echo "IMPORT DONE"
+echo "IMPORT DONE — state count: $($TF -chdir="$(pwd)" state list | wc -l)"

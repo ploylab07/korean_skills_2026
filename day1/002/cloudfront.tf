@@ -54,13 +54,13 @@ resource "aws_cloudfront_distribution" "main" {
   }
 
   default_cache_behavior {
-    target_origin_id       = "wskorea26-s3-origin"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = true
-    cache_policy_id        = local.cache_policy_optimized
-    origin_request_policy_id = local.origin_req_cors_s3
+    target_origin_id         = "wskorea26-s3-origin"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS"]
+    cached_methods           = ["GET", "HEAD"]
+    compress                 = true
+    cache_policy_id          = local.cache_policy_optimized
+    # OAC + SSE-KMS: omit CORS origin-request policy (can cause AccessDenied on GET)
   }
 
   ordered_cache_behavior {

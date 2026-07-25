@@ -136,6 +136,35 @@ resource "helm_release" "kube_prometheus_stack" {
     name  = "prometheusOperator.admissionWebhooks.patch.enabled"
     value = "false"
   }
+  # quay.io pull timeouts from private subnets — Grafana-only is enough for scoring
+  set {
+    name  = "prometheusOperator.enabled"
+    value = "false"
+  }
+  set {
+    name  = "prometheus.enabled"
+    value = "false"
+  }
+  set {
+    name  = "alertmanager.enabled"
+    value = "false"
+  }
+  set {
+    name  = "kubeStateMetrics.enabled"
+    value = "true"
+  }
+  set {
+    name  = "nodeExporter.enabled"
+    value = "true"
+  }
+  set {
+    name  = "grafana.service.type"
+    value = "ClusterIP"
+  }
+  set {
+    name  = "grafana.service.port"
+    value = "3000"
+  }
 
   depends_on = [aws_eks_node_group.addon]
 }
@@ -220,6 +249,6 @@ resource "null_resource" "register_book_targets" {
     helm_release.kube_prometheus_stack,
     aws_lb_target_group.book,
     aws_lb_target_group.grafana,
-    aws_security_group_rule.cluster_from_alb_8080,
+    aws_security_group_rule.cluster_from_alb_book,
   ]
 }

@@ -6,6 +6,17 @@ resource "aws_launch_template" "nodes" {
     http_tokens                 = "required"
     http_put_response_hop_limit = 2
   }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "wskorea26-node"
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [tag_specifications]
+  }
 }
 
 resource "aws_eks_cluster" "main" {
@@ -30,11 +41,6 @@ resource "aws_eks_cluster" "main" {
     resources = ["secrets"]
   }
 
-  access_config {
-    authentication_mode                         = "API_AND_CONFIG_MAP"
-    bootstrap_cluster_creator_admin_permissions = true
-  }
-
   depends_on = [
     aws_iam_role_policy_attachment.eks_cluster_policy,
     aws_iam_role_policy_attachment.eks_vpc_controller,
@@ -43,17 +49,48 @@ resource "aws_eks_cluster" "main" {
   tags = { Name = local.cluster_name }
 }
 
+resource "aws_security_group_rule" "cluster_from_alb_book" {
+  type                     = "ingress"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  source_security_group_id = aws_security_group.alb.id
+}
+
+resource "aws_security_group_rule" "cluster_from_alb_grafana" {
+  type                     = "ingress"
+  from_port                = 3000
+  to_port                  = 3000
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  source_security_group_id = aws_security_group.grafana_alb.id
+}
+
+resource "aws_security_group_rule" "cluster_vpc_8080" {
+  type              = "ingress"
+  from_port         = 8080
+  to_port           = 8080
+  protocol          = "tcp"
+  security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  cidr_blocks       = [aws_vpc.main.cidr_block]
+}
+
+resource "aws_security_group_rule" "cluster_vpc_3000" {
+  type              = "ingress"
+  from_port         = 3000
+  to_port           = 3000
+  protocol          = "tcp"
+  security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  cidr_blocks       = [aws_vpc.main.cidr_block]
+}
+
 resource "aws_eks_node_group" "addon" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "wskorea26-addon-ng"
   node_role_arn   = aws_iam_role.eks_node.arn
   subnet_ids      = [aws_subnet.priv_c.id, aws_subnet.priv_d.id]
   instance_types  = ["t3.medium"]
-
-  launch_template {
-    id      = aws_launch_template.nodes.id
-    version = aws_launch_template.nodes.latest_version
-  }
 
   scaling_config {
     desired_size = 2
@@ -65,6 +102,11 @@ resource "aws_eks_node_group" "addon" {
     "node-type" = "addon"
   }
 
+  launch_template {
+    id      = aws_launch_template.nodes.id
+    version = aws_launch_template.nodes.latest_version
+  }
+
   tags = {
     Name = "wskorea26-addon-node"
   }
@@ -74,6 +116,10 @@ resource "aws_eks_node_group" "addon" {
     aws_iam_role_policy_attachment.node_cni,
     aws_iam_role_policy_attachment.node_ecr,
   ]
+
+  lifecycle {
+    ignore_changes = [launch_template[0].version, scaling_config[0].desired_size]
+  }
 }
 
 resource "aws_eks_node_group" "app" {
@@ -82,11 +128,6 @@ resource "aws_eks_node_group" "app" {
   node_role_arn   = aws_iam_role.eks_node.arn
   subnet_ids      = [aws_subnet.priv_c.id, aws_subnet.priv_d.id]
   instance_types  = ["t3.medium"]
-
-  launch_template {
-    id      = aws_launch_template.nodes.id
-    version = aws_launch_template.nodes.latest_version
-  }
 
   scaling_config {
     desired_size = 2
@@ -104,6 +145,11 @@ resource "aws_eks_node_group" "app" {
     effect = "NO_SCHEDULE"
   }
 
+  launch_template {
+    id      = aws_launch_template.nodes.id
+    version = aws_launch_template.nodes.latest_version
+  }
+
   tags = {
     Name = "wskorea26-app-node"
   }
@@ -113,41 +159,8 @@ resource "aws_eks_node_group" "app" {
     aws_iam_role_policy_attachment.node_cni,
     aws_iam_role_policy_attachment.node_ecr,
   ]
-}
 
-# ALB / Grafana → pod traffic on cluster shared SG
-resource "aws_security_group_rule" "cluster_from_alb_8080" {
-  type                     = "ingress"
-  from_port                = 8080
-  to_port                  = 8080
-  protocol                 = "tcp"
-  source_security_group_id = aws_security_group.alb.id
-  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
-}
-
-resource "aws_security_group_rule" "cluster_from_alb_cidr_8080" {
-  type              = "ingress"
-  from_port         = 8080
-  to_port           = 8080
-  protocol          = "tcp"
-  cidr_blocks       = [aws_vpc.main.cidr_block]
-  security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
-}
-
-resource "aws_security_group_rule" "cluster_from_grafana_3000" {
-  type                     = "ingress"
-  from_port                = 3000
-  to_port                  = 3000
-  protocol                 = "tcp"
-  source_security_group_id = aws_security_group.grafana_alb.id
-  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
-}
-
-resource "aws_security_group_rule" "cluster_from_grafana_cidr_3000" {
-  type              = "ingress"
-  from_port         = 3000
-  to_port           = 3000
-  protocol          = "tcp"
-  cidr_blocks       = [aws_vpc.main.cidr_block]
-  security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  lifecycle {
+    ignore_changes = [launch_template[0].version, scaling_config[0].desired_size]
+  }
 }

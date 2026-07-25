@@ -23,23 +23,21 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "web" {
 }
 
 resource "aws_s3_object" "index" {
-  bucket       = aws_s3_bucket.web.id
-  key          = "web/main/index.html"
-  source       = "${path.module}/index.html"
-  etag         = filemd5("${path.module}/index.html")
-  content_type = "text/html"
+  bucket                 = aws_s3_bucket.web.id
+  key                    = "web/main/index.html"
+  source                 = "${path.module}/index.html"
+  content_type           = "text/html"
   server_side_encryption = "aws:kms"
-  kms_key_id   = aws_kms_key.s3.arn
+  kms_key_id             = aws_kms_key.s3.arn
 }
 
 resource "aws_s3_object" "main_jpeg" {
-  bucket       = aws_s3_bucket.web.id
-  key          = "web/main/main.jpeg"
-  source       = "${path.module}/main.jpeg"
-  etag         = filemd5("${path.module}/main.jpeg")
-  content_type = "image/jpeg"
+  bucket                 = aws_s3_bucket.web.id
+  key                    = "web/main/main.jpeg"
+  source                 = "${path.module}/main.jpeg"
+  content_type           = "image/jpeg"
   server_side_encryption = "aws:kms"
-  kms_key_id   = aws_kms_key.s3.arn
+  kms_key_id             = aws_kms_key.s3.arn
 }
 
 resource "aws_cloudfront_origin_access_control" "s3" {
