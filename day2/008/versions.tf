@@ -14,10 +14,6 @@ terraform {
       source  = "hashicorp/archive"
       version = ">= 2.4.0"
     }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.17"
-    }
     null = {
       source  = "hashicorp/null"
       version = ">= 3.2.0"

@@ -145,9 +145,10 @@ resource "aws_lambda_function" "ceh" {
 }
 
 resource "aws_s3_bucket" "ceh_cloudtrail" {
-  provider = aws.singapore
-  bucket   = "skills-ceh-cloudtrail-${local.account_id}-apse1"
-  tags     = local.common_tags
+  provider      = aws.singapore
+  bucket        = "skills-ceh-cloudtrail-${local.account_id}-apse1"
+  force_destroy = true
+  tags          = local.common_tags
 }
 
 resource "aws_s3_bucket_policy" "ceh_cloudtrail" {

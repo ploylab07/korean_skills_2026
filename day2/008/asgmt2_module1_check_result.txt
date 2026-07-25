@@ -7,9 +7,9 @@
 |  BackupRetention|  1                                                                                    |
 |  Cluster        |  skills-nosql-docdb-cluster                                                           |
 |  Encrypted      |  True                                                                                 |
-|  Endpoint       |  skills-nosql-docdb-cluster.cluster-ct4mycyw04px.ap-northeast-2.docdb.amazonaws.com   |
+|  Endpoint       |  skills-nosql-docdb-cluster.cluster-crau6u6ueeaf.ap-northeast-2.docdb.amazonaws.com   |
 |  Engine         |  docdb                                                                                |
-|  KmsKeyId       |  arn:aws:kms:ap-northeast-2:163389715563:key/26d2d63a-1254-46db-905d-11a2099cf9b7     |
+|  KmsKeyId       |  arn:aws:kms:ap-northeast-2:851725644999:key/7d049132-6354-4a15-ae4e-1aa9ae4cf916     |
 |  Port           |  27017                                                                                |
 |  Status         |  available                                                                            |
 |  Version        |  5.0.0                                                                                |
@@ -17,7 +17,7 @@
 -----------------------------------------------
 |             DescribeDBInstances             |
 +-----------+---------------------------------+
-|  AZ       |  ap-northeast-2a                |
+|  AZ       |  ap-northeast-2b                |
 |  Class    |  db.t3.medium                   |
 |  Cluster  |  skills-nosql-docdb-cluster     |
 |  Engine   |  docdb                          |
@@ -27,7 +27,7 @@
 ----------------------------------------------------------------------------------------------------
 |                                            DescribeKey                                           |
 +------------+-------------------------------------------------------------------------------------+
-|  Arn       |  arn:aws:kms:ap-northeast-2:163389715563:key/26d2d63a-1254-46db-905d-11a2099cf9b7   |
+|  Arn       |  arn:aws:kms:ap-northeast-2:851725644999:key/7d049132-6354-4a15-ae4e-1aa9ae4cf916   |
 |  Enabled   |  True                                                                               |
 |  KeyManager|  CUSTOMER                                                                           |
 |  KeyUsage  |  ENCRYPT_DECRYPT                                                                    |
@@ -37,25 +37,25 @@
 ------------------------------------------------------------------------------------------------------------
 |                                              DescribeSecret                                              |
 +----------+-----------------------------------------------------------------------------------------------+
-|  ARN     |  arn:aws:secretsmanager:ap-northeast-2:163389715563:secret:skills-nosql-docdb-secret-hQDdp8   |
+|  ARN     |  arn:aws:secretsmanager:ap-northeast-2:851725644999:secret:skills-nosql-docdb-secret-uGm7qO   |
 |  KmsKeyId|  None                                                                                         |
 |  Name    |  skills-nosql-docdb-secret                                                                    |
 +----------+-----------------------------------------------------------------------------------------------+
 {
   "username": "skillsadmin",
-  "host": "skills-nosql-docdb-cluster.cluster-ct4mycyw04px.ap-northeast-2.docdb.amazonaws.com",
+  "host": "skills-nosql-docdb-cluster.cluster-crau6u6ueeaf.ap-northeast-2.docdb.amazonaws.com",
   "password_set": true
 }
 -------------------------------------------
 |            DescribeInstances            |
 +-------------+---------------------------+
-|  InstanceId |  i-07265b5bba385ec52      |
+|  InstanceId |  i-07a84e674331dcc62      |
 |  Name       |  skills-nosql-client-ec2  |
-|  PublicIp   |  52.78.180.50             |
+|  PublicIp   |  13.124.195.50            |
 |  State      |  running                  |
 |  Type       |  t3.small                 |
 +-------------+---------------------------+
-CLIENT_IP=52.78.180.50
+CLIENT_IP=13.124.195.50
 
 [1-3] Client Application 및 데이터 적재 상태 (1.5점)
 {"status": "ok", "database": "skills_retail", "port": 27017, "tls": true}

@@ -191,9 +191,10 @@ resource "aws_secretsmanager_secret_version" "nosql" {
 }
 
 resource "aws_s3_bucket" "nosql_deploy" {
-  provider = aws.seoul
-  bucket   = "skills-nosql-deploy-${local.account_id}-an2"
-  tags     = local.common_tags
+  provider      = aws.seoul
+  bucket        = "skills-nosql-deploy-${local.account_id}-an2"
+  force_destroy = true
+  tags          = local.common_tags
 }
 
 resource "aws_s3_object" "docdb_client" {

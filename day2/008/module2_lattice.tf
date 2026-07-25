@@ -230,9 +230,10 @@ resource "aws_iam_instance_profile" "lattice_ec2" {
 }
 
 resource "aws_s3_bucket" "lattice_deploy" {
-  provider = aws.tokyo
-  bucket   = "skills-lattice-deploy-${local.account_id}-an1"
-  tags     = local.common_tags
+  provider      = aws.tokyo
+  bucket        = "skills-lattice-deploy-${local.account_id}-an1"
+  force_destroy = true
+  tags          = local.common_tags
 }
 
 resource "aws_s3_object" "client_app" {

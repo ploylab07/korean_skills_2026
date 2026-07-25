@@ -1,40 +1,40 @@
 == 제2과제 3모듈 Cloud Event Handling 채점 출력 ==
 
 [3-1] 기본 VPC, EC2, Security Group 구성 (1.5점)
-VPC_ID=vpc-0e1cd269dc543503f
-EC2_ID=i-0812607ac69710eb0
-SG_ID=sg-0052864beb19d30f8
+VPC_ID=vpc-0adbdb242890ba64c
+EC2_ID=i-0819bdfbcf1882a0a
+SG_ID=sg-0f8d254710f745b9e
 -------------------------------------------------------------
 |                       DescribeVpcs                        |
 +--------------+------------------+-------------------------+
 |     Cidr     |      Name        |          VpcId          |
 +--------------+------------------+-------------------------+
-|  10.73.0.0/16|  skills-ceh-vpc  |  vpc-0e1cd269dc543503f  |
+|  10.73.0.0/16|  skills-ceh-vpc  |  vpc-0adbdb242890ba64c  |
 +--------------+------------------+-------------------------+
 ------------------------------------------------------------------
 |                        DescribeInstances                       |
 +----------------------+------------------+----------+-----------+
 |          Id          |      Name        |  State   |   Type    |
 +----------------------+------------------+----------+-----------+
-|  i-0812607ac69710eb0 |  skills-ceh-ec2  |  running |  t3.micro |
+|  i-0819bdfbcf1882a0a |  skills-ceh-ec2  |  running |  t3.micro |
 +----------------------+------------------+----------+-----------+
 ||                        SecurityGroups                        ||
 |+--------------------------------------------------------------+|
-||  sg-0052864beb19d30f8                                        ||
+||  sg-0f8d254710f745b9e                                        ||
 |+--------------------------------------------------------------+|
 ------------------------------------------
 |         DescribeSecurityGroups         |
 +------------+---------------------------+
-|  GroupId   |  sg-0052864beb19d30f8     |
+|  GroupId   |  sg-0f8d254710f745b9e     |
 |  GroupName |  skills-ceh-protected-sg  |
 |  Name      |  skills-ceh-protected-sg  |
-|  VpcId     |  vpc-0e1cd269dc543503f    |
+|  VpcId     |  vpc-0adbdb242890ba64c    |
 +------------+---------------------------+
 
 [3-2] 보호 대상 Security Group 기준 상태 (1.5점)
 [
     {
-        "GroupId": "sg-0052864beb19d30f8",
+        "GroupId": "sg-0f8d254710f745b9e",
         "Inbound": [],
         "Outbound": [
             {
@@ -53,11 +53,11 @@ SG_ID=sg-0052864beb19d30f8
 ]
 
 [3-3] SNS Topic 및 Lambda 구성 (1.5점)
-TOPIC_ARN=arn:aws:sns:ap-southeast-1:163389715563:skills-ceh-alert-topic
+TOPIC_ARN=arn:aws:sns:ap-southeast-1:851725644999:skills-ceh-alert-topic
 --------------------------------------------------------------------
 |                            ListTopics                            |
 +------------------------------------------------------------------+
-|  arn:aws:sns:ap-southeast-1:163389715563:skills-ceh-alert-topic  |
+|  arn:aws:sns:ap-southeast-1:851725644999:skills-ceh-alert-topic  |
 +------------------------------------------------------------------+
 -----------------------------------------------------------------------------------------------------
 |                                     GetFunctionConfiguration                                      |
@@ -65,15 +65,15 @@ TOPIC_ARN=arn:aws:sns:ap-southeast-1:163389715563:skills-ceh-alert-topic
 |  FunctionName          |  skills-ceh-remediate-fn                                                 |
 |  Handler               |  remediate_security_group.lambda_handler                                 |
 |  LastUpdateStatus      |  Successful                                                              |
-|  Role                  |  arn:aws:iam::163389715563:role/skills-ceh-lambda-role                   |
+|  Role                  |  arn:aws:iam::851725644999:role/skills-ceh-lambda-role                   |
 |  Runtime               |  python3.12                                                              |
 |  State                 |  Active                                                                  |
 |  Timeout               |  30                                                                      |
 +------------------------+--------------------------------------------------------------------------+
 ||                                           Environment                                           ||
 |+------------------------------+------------------------------------------------------------------+|
-||  PROTECTED_SECURITY_GROUP_ID |  sg-0052864beb19d30f8                                            ||
-||  SNS_TOPIC_ARN               |  arn:aws:sns:ap-southeast-1:163389715563:skills-ceh-alert-topic  ||
+||  PROTECTED_SECURITY_GROUP_ID |  sg-0f8d254710f745b9e                                            ||
+||  SNS_TOPIC_ARN               |  arn:aws:sns:ap-southeast-1:851725644999:skills-ceh-alert-topic  ||
 |+------------------------------+------------------------------------------------------------------+|
 
 [3-4] CloudTrail, EventBridge Rule 및 Target 구성 (1.5점)
@@ -82,27 +82,27 @@ TOPIC_ARN=arn:aws:sns:ap-southeast-1:163389715563:skills-ceh-alert-topic
 +-----------+-----------------------+------------------------------------+
 | IsLogging |  LatestDeliveryError  |        LatestDeliveryTime          |
 +-----------+-----------------------+------------------------------------+
-|  True     |  None                 |  2026-07-18T06:17:24.563000+00:00  |
+|  True     |  None                 |  2026-07-25T05:30:22.664000+00:00  |
 +-----------+-----------------------+------------------------------------+
 {
     "Name": "skills-ceh-sg-change-rule",
     "State": "ENABLED",
-    "EventPattern": "{\"source\":[\"aws.ec2\"],\"detail-type\":[\"AWS API Call via CloudTrail\"],\"detail\":{\"eventSource\":[\"ec2.amazonaws.com\"],\"eventName\":[\"AuthorizeSecurityGroupIngress\"]}}"
+    "EventPattern": "{\"detail\":{\"eventName\":[\"AuthorizeSecurityGroupIngress\"],\"eventSource\":[\"ec2.amazonaws.com\"]},\"detail-type\":[\"AWS API Call via CloudTrail\"],\"source\":[\"aws.ec2\"]}"
 }
 ----------------------------------------------------------------------------------------
 |                                   ListTargetsByRule                                  |
 +-----+--------------------------------------------------------------------------------+
-|  Arn|  arn:aws:lambda:ap-southeast-1:163389715563:function:skills-ceh-remediate-fn   |
+|  Arn|  arn:aws:lambda:ap-southeast-1:851725644999:function:skills-ceh-remediate-fn   |
 |  Id |  1                                                                             |
 +-----+--------------------------------------------------------------------------------+
-{"Version":"2012-10-17","Id":"default","Statement":[{"Sid":"AllowEventBridge","Effect":"Allow","Principal":{"Service":"events.amazonaws.com"},"Action":"lambda:InvokeFunction","Resource":"arn:aws:lambda:ap-southeast-1:163389715563:function:skills-ceh-remediate-fn","Condition":{"ArnLike":{"AWS:SourceArn":"arn:aws:events:ap-southeast-1:163389715563:rule/skills-ceh-sg-change-rule"}}}]}
+{"Version":"2012-10-17","Id":"default","Statement":[{"Sid":"AllowEventBridge","Effect":"Allow","Principal":{"Service":"events.amazonaws.com"},"Action":"lambda:InvokeFunction","Resource":"arn:aws:lambda:ap-southeast-1:851725644999:function:skills-ceh-remediate-fn","Condition":{"ArnLike":{"AWS:SourceArn":"arn:aws:events:ap-southeast-1:851725644999:rule/skills-ceh-sg-change-rule"}}}]}
 
 [3-5] 최종 기능 검증 (1.5점)
 주의: 본 항목은 채점기준표에 따라 테스트용 Inbound 규칙 TCP/22 from 0.0.0.0/0을 임시 추가합니다.
 True
-SECURITYGROUPRULES	0.0.0.0/0	22	sg-0052864beb19d30f8	163389715563	tcp	False	arn:aws:ec2:ap-southeast-1:163389715563:security-group-rule/sgr-0e876c5f2eab0f3e6	sgr-0e876c5f2eab0f3e6	22
+SECURITYGROUPRULES	0.0.0.0/0	22	sg-0f8d254710f745b9e	851725644999	tcp	False	arn:aws:ec2:ap-southeast-1:851725644999:security-group-rule/sgr-08daf0f857e7e32df	sgr-08daf0f857e7e32df	22
 $LATEST	200
-{"status": "RESTORED", "eventName": "AuthorizeSecurityGroupIngress", "eventGroupId": "sg-0052864beb19d30f8", "protectedGroupId": "sg-0052864beb19d30f8", "requestId": "", "revokedPermissionCount": 1, "timestamp": 1784355473, "publishStatus": "SNS_PUBLISHED"}
+{"status": "RESTORED", "eventName": "AuthorizeSecurityGroupIngress", "eventGroupId": "sg-0f8d254710f745b9e", "protectedGroupId": "sg-0f8d254710f745b9e", "requestId": "", "revokedPermissionCount": 1, "timestamp": 1784957499, "publishStatus": "SNS_PUBLISHED"}
 poll=1
 []
 inbound_count=0

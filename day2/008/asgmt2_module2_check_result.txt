@@ -6,19 +6,19 @@
 +--------------+------------------------------+------------+-------------------------+
 |     Cidr     |            Name              |   State    |          VpcId          |
 +--------------+------------------------------+------------+-------------------------+
-|  10.61.0.0/16|  skills-lattice-client-vpc   |  available |  vpc-0b259059828b90b4e  |
-|  10.62.0.0/16|  skills-lattice-service-vpc  |  available |  vpc-0f680c05886b799eb  |
+|  10.62.0.0/16|  skills-lattice-service-vpc  |  available |  vpc-020b1c3f000df8e6b  |
+|  10.61.0.0/16|  skills-lattice-client-vpc   |  available |  vpc-021b49f1be99815ce  |
 +--------------+------------------------------+------------+-------------------------+
-CLIENT_VPC_ID=vpc-0b259059828b90b4e
-SERVICE_VPC_ID=vpc-0f680c05886b799eb
+CLIENT_VPC_ID=vpc-021b49f1be99815ce
+SERVICE_VPC_ID=vpc-020b1c3f000df8e6b
 ------------------------------------------------------------------------------------------------------------------------------------------
 |                                                             DescribeSubnets                                                            |
 +-----------------+----------------+--------------+-------------------------------+----------------------------+-------------------------+
 |       AZ        |     Cidr       | MapPublicIp  |             Name              |         SubnetId           |          VpcId          |
 +-----------------+----------------+--------------+-------------------------------+----------------------------+-------------------------+
-|  ap-northeast-1a|  10.62.11.0/24 |  False       |  skills-lattice-service-priv  |  subnet-037d608c5d6e34987  |  vpc-0f680c05886b799eb  |
-|  ap-northeast-1a|  10.61.1.0/24  |  True        |  skills-lattice-client-subnet |  subnet-010feb714e460cc63  |  vpc-0b259059828b90b4e  |
-|  ap-northeast-1a|  10.62.1.0/24  |  True        |  skills-lattice-service-pub   |  subnet-02c73e0bb8eda8236  |  vpc-0f680c05886b799eb  |
+|  ap-northeast-1a|  10.62.11.0/24 |  False       |  skills-lattice-service-priv  |  subnet-05b6e495b537b2069  |  vpc-020b1c3f000df8e6b  |
+|  ap-northeast-1a|  10.62.1.0/24  |  True        |  skills-lattice-service-pub   |  subnet-07a40a9f80409e9ce  |  vpc-020b1c3f000df8e6b  |
+|  ap-northeast-1a|  10.61.1.0/24  |  True        |  skills-lattice-client-subnet |  subnet-0353a5316ab7ca973  |  vpc-021b49f1be99815ce  |
 +-----------------+----------------+--------------+-------------------------------+----------------------------+-------------------------+
 
 [2-2] Client/Service EC2 및 애플리케이션 구성 (1.5점)
@@ -27,32 +27,32 @@ SERVICE_VPC_ID=vpc-0f680c05886b799eb
 +---------------------+------------------------------+---------------+----------------+----------+------------+
 |         Id          |            Name              |   PrivateIp   |   PublicIp     |  State   |   Type     |
 +---------------------+------------------------------+---------------+----------------+----------+------------+
-|  i-01ddd7d95f46fc35f|  skills-lattice-client-ec2   |  10.61.1.154  |  3.112.225.182 |  running |  t3.micro  |
-|  i-0d7afe20a148dbf1b|  skills-lattice-service-ec2  |  10.62.11.226 |  None          |  running |  t3.micro  |
+|  i-0046987f89c228419|  skills-lattice-service-ec2  |  10.62.11.170 |  None          |  running |  t3.micro  |
+|  i-09b461c1c88f39fda|  skills-lattice-client-ec2   |  10.61.1.126  |  3.112.132.203 |  running |  t3.micro  |
 +---------------------+------------------------------+---------------+----------------+----------+------------+
-CLIENT_IP=3.112.225.182
-SERVICE_INSTANCE_ID=i-0d7afe20a148dbf1b
-SERVICE_SG_IDS=sg-0ac95e4c53592b2f0
+CLIENT_IP=3.112.132.203
+SERVICE_INSTANCE_ID=i-0046987f89c228419
+SERVICE_SG_IDS=sg-08e1568aa2ea6bd00
 {"status": "ok", "app": "client"}
 http_code=200
 
 
 [2-3] VPC Lattice Service Network 및 Service 구성 (1.5점)
-SERVICE_NETWORK_ID=sn-0015d1d4bdbcf6164
-SERVICE_ID=svc-04df6a6cb1e9ee0f7
+SERVICE_NETWORK_ID=sn-0573c6c7d13e93b19
+SERVICE_ID=svc-0edbb2479d667ae90
 ------------------------------------------------
 |              ListServiceNetworks             |
 +---------------------+------------------------+
 |  AssociatedServices |  1                     |
 |  AssociatedVPCs     |  1                     |
-|  Id                 |  sn-0015d1d4bdbcf6164  |
+|  Id                 |  sn-0573c6c7d13e93b19  |
 |  Name               |  skills-lattice-sn     |
 +---------------------+------------------------+
 -------------------------------------------------------------------------------------------------------------
 |                                               ListServices                                                |
 +--------+--------------------------------------------------------------------------------------------------+
-|  Dns   |  skills-lattice-order-service-04df6a6cb1e9ee0f7.7d67968.vpc-lattice-svcs.ap-northeast-1.on.aws   |
-|  Id    |  svc-04df6a6cb1e9ee0f7                                                                           |
+|  Dns   |  skills-lattice-order-service-0edbb2479d667ae90.7d67968.vpc-lattice-svcs.ap-northeast-1.on.aws   |
+|  Id    |  svc-0edbb2479d667ae90                                                                           |
 |  Name  |  skills-lattice-order-service                                                                    |
 |  Status|  ACTIVE                                                                                          |
 +--------+--------------------------------------------------------------------------------------------------+
@@ -61,60 +61,60 @@ SERVICE_ID=svc-04df6a6cb1e9ee0f7
 +-------------------------+---------+-------------------------+
 |      AssociationId      | Status  |          VpcId          |
 +-------------------------+---------+-------------------------+
-|  snva-057a996bf0afa65bb |  ACTIVE |  vpc-0b259059828b90b4e  |
+|  snva-0fc1f3acd56508996 |  ACTIVE |  vpc-021b49f1be99815ce  |
 +-------------------------+---------+-------------------------+
 ---------------------------------------------------------------
 |               GetServiceNetworkVpcAssociation               |
 +-------------------------+---------+-------------------------+
 |      AssociationId      | Status  |          VpcId          |
 +-------------------------+---------+-------------------------+
-|  snva-057a996bf0afa65bb |  ACTIVE |  vpc-0b259059828b90b4e  |
+|  snva-0fc1f3acd56508996 |  ACTIVE |  vpc-021b49f1be99815ce  |
 +-------------------------+---------+-------------------------+
 ||                     SecurityGroupIds                      ||
 |+-----------------------------------------------------------+|
-||  sg-05ec05eb3c6aa3628                                     ||
+||  sg-0d12cb01ef5901a9a                                     ||
 |+-----------------------------------------------------------+|
 ----------------------------------------------------------------------------------------------------------------
 |                                     ListServiceNetworkServiceAssociations                                    |
 +-----------+--------------------------------------------------------------------------------------------------+
-|  Dns      |  skills-lattice-order-service-04df6a6cb1e9ee0f7.7d67968.vpc-lattice-svcs.ap-northeast-1.on.aws   |
-|  ServiceId|  svc-04df6a6cb1e9ee0f7                                                                           |
+|  Dns      |  skills-lattice-order-service-0edbb2479d667ae90.7d67968.vpc-lattice-svcs.ap-northeast-1.on.aws   |
+|  ServiceId|  svc-0edbb2479d667ae90                                                                           |
 |  Status   |  ACTIVE                                                                                          |
 +-----------+--------------------------------------------------------------------------------------------------+
 
 [2-4] Target Group, Listener, Security Group 구성 (1.5점)
-TARGET_GROUP_ID=tg-069edcbe648ae25d9
+TARGET_GROUP_ID=tg-047dd98ed865df35c
 -----------------------------------------
 |           ListTargetGroups            |
 +-----------+---------------------------+
-|  Id       |  tg-069edcbe648ae25d9     |
+|  Id       |  tg-047dd98ed865df35c     |
 |  Name     |  skills-lattice-order-tg  |
 |  Port     |  8080                     |
 |  Protocol |  HTTP                     |
 |  Status   |  ACTIVE                   |
 |  Type     |  INSTANCE                 |
-|  Vpc      |  vpc-0f680c05886b799eb    |
+|  Vpc      |  vpc-020b1c3f000df8e6b    |
 +-----------+---------------------------+
 --------------------------------------------
 |                ListTargets               |
 +------+-----------+-----------------------+
 | Port |  Status   |        Target         |
 +------+-----------+-----------------------+
-|  8080|  HEALTHY  |  i-0d7afe20a148dbf1b  |
+|  8080|  HEALTHY  |  i-0046987f89c228419  |
 +------+-----------+-----------------------+
 ----------------------------------------------
 |                ListListeners               |
 +-----------+--------------------------------+
-|  Id       |  listener-0934ef40b67e58de5    |
+|  Id       |  listener-08130a6a202f1f284    |
 |  Name     |  skills-lattice-http-listener  |
 |  Port     |  80                            |
 |  Protocol |  HTTP                          |
 +-----------+--------------------------------+
 [
     {
-        "GroupId": "sg-0ac95e4c53592b2f0",
+        "GroupId": "sg-08e1568aa2ea6bd00",
         "GroupName": "skills-lattice-service-sg",
-        "VpcId": "vpc-0f680c05886b799eb",
+        "VpcId": "vpc-020b1c3f000df8e6b",
         "Inbound": [
             {
                 "IpProtocol": "tcp",
