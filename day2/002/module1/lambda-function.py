@@ -59,8 +59,7 @@ def save_error(bucket, row, error_reason, timestamp):
 
 
 def calculate_grade(average):
-    # TODO: 평균 점수를 기반으로 등급을 반환하는 로직 구현
-    # A(90~100), B(80~89), C(70~79), D(60~69), F(0~59)
+    """Return the letter grade for a one-decimal-place average."""
     if average >= 90:
         return "A"
     if average >= 80:
@@ -73,9 +72,7 @@ def calculate_grade(average):
 
 
 def save_student(table, row):
-    # TODO: 정상 데이터를 DynamoDB에 저장하는 로직 구현
-    # 5개 과목의 평균 점수를 계산하고 calculate_grade()로 등급을 산출한 뒤 저장
-    # 저장 항목: studentId, examDate, name, className, korean, english, math, science, history, average, grade, createdAt
+    """Persist a validated student's scores, rounded average, and grade."""
     scores = [int(row[field].strip()) for field in SCORE_FIELDS]
     average = Decimal(str(round(sum(scores) / len(scores), 1)))
     grade = calculate_grade(float(average))

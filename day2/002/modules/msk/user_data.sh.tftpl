@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf install -y awscli
+install -d -m 0755 /opt/sensor-producer
+aws s3 cp "s3://${bucket}/deploy/app" /opt/sensor-producer/app --region "${region}"
+chmod 0755 /opt/sensor-producer/app
+
+cat >/etc/systemd/system/sensor-producer.service <<EOF
+[Unit]
+Description=WSC2026 Sensor Producer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=AWS_REGION=${region}
+Environment=AWS_DEFAULT_REGION=${region}
+Environment=BOOTSTRAP_SERVERS=${bootstrap}
+Environment=TOPIC_RAW=wsc2026-sensor-raw
+ExecStart=/opt/sensor-producer/app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now sensor-producer

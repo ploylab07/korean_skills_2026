@@ -5,14 +5,17 @@ from datetime import datetime, timezone
 import boto3
 
 ec2_client = boto3.client("ec2")
-iam_client = boto3.client("iam")
 sns_client = boto3.client("sns")
-config_client = boto3.client("config")
 
 SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
 
 
 def publish_alert(event_type, detail, action):
+    """Publish an operational notification when a topic is configured."""
+    if not SNS_TOPIC_ARN:
+        print("SNS_TOPIC_ARN is not configured; alert not published")
+        return
+
     sns_client.publish(
         TopicArn=SNS_TOPIC_ARN,
         Message=json.dumps({
@@ -24,83 +27,33 @@ def publish_alert(event_type, detail, action):
     )
 
 
-# ===== wsc2026-sg-remediation =====
 def sg_remediation_handler(event, context):
+    """Remove every ingress rule from the protected security group."""
     sg_id = os.environ.get("SECURITY_GROUP_ID")
-    detail = event.get("detail", {})
-    request_params = detail.get("requestParameters", {})
+    if not sg_id:
+        raise ValueError("SECURITY_GROUP_ID is required")
 
-    # CloudTrail / EventBridge 형식과 Config 형식 모두 처리
-    ip_permissions = request_params.get("ipPermissions")
-    if isinstance(ip_permissions, dict) and "items" in ip_permissions:
-        items = ip_permissions["items"]
-        for item in items:
-            ip_ranges = item.get("ipRanges", {})
-            ranges = ip_ranges.get("items", []) if isinstance(ip_ranges, dict) else ip_ranges
-            cidr_list = []
-            for r in ranges or []:
-                if isinstance(r, dict):
-                    cidr_list.append({"CidrIp": r.get("cidrIp", "0.0.0.0/0")})
-                else:
-                    cidr_list.append({"CidrIp": str(r)})
-            try:
-                ec2_client.revoke_security_group_ingress(
-                    GroupId=request_params.get("groupId") or sg_id,
-                    IpPermissions=[{
-                        "IpProtocol": item.get("ipProtocol", "tcp"),
-                        "FromPort": int(item.get("fromPort", 22)),
-                        "ToPort": int(item.get("toPort", 22)),
-                        "IpRanges": cidr_list or [{"CidrIp": "0.0.0.0/0"}],
-                    }],
-                )
-            except Exception as e:
-                print(f"revoke failed: {e}")
-    else:
-        # fallback: remove all inbound rules on target SG
-        target_sg = request_params.get("groupId") or sg_id
-        try:
-            sg = ec2_client.describe_security_groups(GroupIds=[target_sg])["SecurityGroups"][0]
-            if sg.get("IpPermissions"):
-                ec2_client.revoke_security_group_ingress(
-                    GroupId=target_sg,
-                    IpPermissions=sg["IpPermissions"],
-                )
-        except Exception as e:
-            print(f"fallback revoke failed: {e}")
+    # Always use the configured group.  The EventBridge rule sees account-wide
+    # CloudTrail events, so trusting a group ID supplied by the event could
+    # accidentally alter an unrelated security group.
+    sg = ec2_client.describe_security_groups(GroupIds=[sg_id])["SecurityGroups"][0]
+    permissions = sg.get("IpPermissions", [])
+    if permissions:
+        ec2_client.revoke_security_group_ingress(
+            GroupId=sg_id,
+            IpPermissions=permissions,
+        )
 
     publish_alert(
         "SG_INBOUND_ADDED",
         f"Unauthorized inbound rule removed from {sg_id}",
         "RESTORED",
     )
+    return {"status": "remediated", "security_group_id": sg_id}
 
 
-# ===== wsc2026-role-remediation =====
-def role_remediation_handler(event, context):
-    instance_id = os.environ.get("INSTANCE_ID")
-    role_name = os.environ.get("ROLE_NAME")
-    detail = event.get("detail", {})
-
-    associations = ec2_client.describe_iam_instance_profile_associations(
-        Filters=[{"Name": "instance-id", "Values": [instance_id]}]
-    ).get("IamInstanceProfileAssociations", [])
-
-    for assoc in associations:
-        if assoc.get("State") in ("associated", "associating"):
-            ec2_client.replace_iam_instance_profile_association(
-                AssociationId=assoc["AssociationId"],
-                IamInstanceProfile={"Name": role_name},
-            )
-
-    publish_alert(
-        "ROLE_CHANGED",
-        f"IAM role on instance {instance_id} was changed and restored to {role_name}",
-        "RESTORED",
-    )
-
-
-# ===== wsc2026-ec2-terminate-alert =====
 def ec2_terminate_handler(event, context):
+    """Send an alert only; a terminated instance is never recreated."""
     detail = event.get("detail", {})
     instance_id = detail.get("instance-id", "unknown")
 
@@ -109,55 +62,32 @@ def ec2_terminate_handler(event, context):
         f"EC2 instance {instance_id} was terminated",
         "ALERT_ONLY",
     )
+    return {"status": "alerted", "instance_id": instance_id}
 
 
-# ===== wsc2026-ec2-type-remediation =====
-def ec2_type_remediation_handler(event, context):
+def ec2_stop_remediation_handler(event, context):
+    """Restart the configured instance after its stopped-state event."""
     instance_id = os.environ.get("INSTANCE_ID")
-    original_type = os.environ.get("INSTANCE_TYPE")
     detail = event.get("detail", {})
+    state = detail.get("state")
 
-    ec2_client.stop_instances(InstanceIds=[instance_id])
-    waiter = ec2_client.get_waiter("instance_stopped")
-    waiter.wait(InstanceIds=[instance_id])
-    ec2_client.modify_instance_attribute(
-        InstanceId=instance_id,
-        InstanceType={"Value": original_type},
-    )
+    if state != "stopped":
+        return {"status": "ignored"}
+
+    if not instance_id:
+        raise ValueError("INSTANCE_ID is required")
     ec2_client.start_instances(InstanceIds=[instance_id])
 
     publish_alert(
-        "EC2_TYPE_CHANGED",
-        f"Instance {instance_id} type was changed and restored to {original_type}",
-        "RESTORED",
-    )
-
-
-# ===== wsc2026-ec2-stop-remediation (채점 스크립트용) =====
-def ec2_stop_remediation_handler(event, context):
-    instance_id = os.environ.get("INSTANCE_ID")
-    detail = event.get("detail", {})
-    state = detail.get("state", "")
-    event_instance = detail.get("instance-id") or instance_id
-
-    if state and state not in ("stopped", "stopping"):
-        return {"status": "ignored"}
-
-    target = event_instance or instance_id
-    try:
-        ec2_client.start_instances(InstanceIds=[target])
-    except Exception as e:
-        print(f"start failed: {e}")
-
-    publish_alert(
         "EC2_STOPPED",
-        f"EC2 instance {target} was stopped and restarted",
+        f"EC2 instance {instance_id} was stopped and restarted",
         "RESTORED",
     )
+    return {"status": "restart_requested", "instance_id": instance_id}
 
 
-# ===== wsc2026-tag-alert (채점 스크립트용) =====
 def tag_alert_handler(event, context):
+    """Alert on a Config non-compliance event."""
     detail = event.get("detail", event)
     resource_id = (
         detail.get("resourceId")
@@ -169,3 +99,4 @@ def tag_alert_handler(event, context):
         f"Resource {resource_id} is missing required tags",
         "ALERT_ONLY",
     )
+    return {"status": "alerted", "resource_id": resource_id}
