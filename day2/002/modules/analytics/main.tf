@@ -4,6 +4,9 @@ terraform {
       source                = "hashicorp/aws"
       configuration_aliases = [aws]
     }
+    time = {
+      source = "hashicorp/time"
+    }
   }
 }
 
@@ -97,13 +100,13 @@ resource "aws_route_table_association" "public_b" {
 
 resource "aws_eip" "nat" {
   provider = aws
-  domain = "vpc"
+  domain   = "vpc"
 
   tags = { Name = "analytics-ngw-eip" }
 }
 
 resource "aws_nat_gateway" "analytics" {
-  provider = aws
+  provider      = aws
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public_a.id
 
@@ -114,7 +117,7 @@ resource "aws_nat_gateway" "analytics" {
 
 resource "aws_route_table" "private_a" {
   provider = aws
-  vpc_id = aws_vpc.analytics.id
+  vpc_id   = aws_vpc.analytics.id
 
   route {
     cidr_block     = "0.0.0.0/0"
@@ -126,7 +129,7 @@ resource "aws_route_table" "private_a" {
 
 resource "aws_route_table" "private_b" {
   provider = aws
-  vpc_id = aws_vpc.analytics.id
+  vpc_id   = aws_vpc.analytics.id
 
   route {
     cidr_block     = "0.0.0.0/0"
@@ -220,8 +223,8 @@ resource "aws_iam_role" "flink" {
 
 resource "aws_iam_role_policy" "flink" {
   provider = aws
-  name = "analytics-flink"
-  role = aws_iam_role.flink.id
+  name     = "analytics-flink"
+  role     = aws_iam_role.flink.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -234,13 +237,30 @@ resource "aws_iam_role_policy" "flink" {
           "kinesis:GetRecords",
           "kinesis:GetShardIterator",
           "kinesis:ListShards",
-          "kinesis:SubscribeToShard"
+          "kinesis:SubscribeToShard",
+          "kinesis:ListStreams"
         ]
-        Resource = aws_kinesis_stream.orders.arn
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "glue:GetDatabase",
+          "glue:GetDatabases",
+          "glue:CreateDatabase",
+          "glue:CreateTable",
+          "glue:GetTable",
+          "glue:GetTables",
+          "glue:UpdateTable",
+          "glue:DeleteTable",
+          "glue:GetPartitions",
+          "glue:GetUserDefinedFunctions"
+        ]
+        Resource = "*"
       },
       {
         Effect   = "Allow"
-        Action   = ["glue:*", "logs:*", "s3:*"]
+        Action   = ["logs:*", "s3:*", "cloudwatch:*"]
         Resource = "*"
       },
       {
@@ -250,6 +270,11 @@ resource "aws_iam_role_policy" "flink" {
       }
     ]
   })
+}
+
+resource "time_sleep" "flink_iam" {
+  depends_on      = [aws_iam_role_policy.flink, aws_glue_catalog_database.default]
+  create_duration = "20s"
 }
 
 resource "aws_security_group" "alb" {
@@ -367,7 +392,7 @@ resource "aws_glue_catalog_database" "default" {
 }
 
 resource "aws_kinesisanalyticsv2_application" "flink" {
-  provider = aws
+  provider               = aws
   name                   = "wsc2026-analytics-flink"
   runtime_environment    = "ZEPPELIN-FLINK-3_0"
   application_mode       = "INTERACTIVE"
@@ -375,6 +400,7 @@ resource "aws_kinesisanalyticsv2_application" "flink" {
 
   depends_on = [
     aws_glue_catalog_database.default,
-    aws_iam_role_policy.flink
+    aws_iam_role_policy.flink,
+    time_sleep.flink_iam
   ]
 }

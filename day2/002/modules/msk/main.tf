@@ -301,6 +301,12 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+resource "aws_iam_role_policy_attachment" "lambda_msk" {
+  provider   = aws
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaMSKExecutionRole"
+}
+
 resource "aws_iam_role_policy" "lambda" {
   provider = aws
   name     = "msk-lambda-inline"
@@ -308,10 +314,31 @@ resource "aws_iam_role_policy" "lambda" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = ["dynamodb:PutItem"], Resource = aws_dynamodb_table.sensor_data.arn },
+      { Effect = "Allow", Action = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:Scan", "dynamodb:Query"], Resource = aws_dynamodb_table.sensor_data.arn },
       { Effect = "Allow", Action = ["sns:Publish"], Resource = aws_sns_topic.alerts.arn },
-      { Effect = "Allow", Action = ["s3:PutObject", "s3:GetObject"], Resource = "${aws_s3_bucket.alerts.arn}/*" },
-      { Effect = "Allow", Action = ["kafka:DescribeCluster", "kafka:GetBootstrapBrokers", "ec2:Describe*"], Resource = "*" }
+      { Effect = "Allow", Action = ["s3:PutObject", "s3:GetObject"], Resource = ["${aws_s3_bucket.alerts.arn}", "${aws_s3_bucket.alerts.arn}/*"] },
+      {
+        Effect = "Allow"
+        Action = [
+          "kafka:DescribeCluster",
+          "kafka:DescribeClusterV2",
+          "kafka:GetBootstrapBrokers",
+          "kafka-cluster:Connect",
+          "kafka-cluster:DescribeGroup",
+          "kafka-cluster:AlterGroup",
+          "kafka-cluster:DescribeTopic",
+          "kafka-cluster:ReadData",
+          "kafka-cluster:WriteData",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:CreateNetworkInterface",
+          "ec2:DeleteNetworkInterface",
+          "ec2:Describe*"
+        ]
+        Resource = "*"
+      }
     ]
   })
 }
@@ -359,6 +386,33 @@ resource "aws_msk_cluster" "this" {
     }
     unauthenticated = true
   }
+}
+
+resource "aws_msk_cluster_policy" "lambda" {
+  provider     = aws
+  cluster_arn  = aws_msk_cluster.this.arn
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { AWS = aws_iam_role.lambda.arn }
+      Action = [
+        "kafka-cluster:Connect",
+        "kafka-cluster:DescribeCluster",
+        "kafka-cluster:DescribeClusterDynamicConfiguration",
+        "kafka-cluster:DescribeGroup",
+        "kafka-cluster:AlterGroup",
+        "kafka-cluster:DescribeTopic",
+        "kafka-cluster:ReadData",
+        "kafka-cluster:WriteData",
+      ]
+      Resource = [
+        aws_msk_cluster.this.arn,
+        "arn:aws:kafka:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:topic/${aws_msk_cluster.this.cluster_name}/${element(split("/", aws_msk_cluster.this.arn), 2)}/*",
+        "arn:aws:kafka:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:group/${aws_msk_cluster.this.cluster_name}/${element(split("/", aws_msk_cluster.this.arn), 2)}/*",
+      ]
+    }]
+  })
 }
 
 resource "terraform_data" "sensor_consumer_package" {

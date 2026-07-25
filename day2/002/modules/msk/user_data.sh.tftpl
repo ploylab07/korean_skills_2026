@@ -1,10 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
-dnf install -y awscli
+dnf install -y awscli java-17-amazon-corretto-headless
 install -d -m 0755 /opt/sensor-producer
 aws s3 cp "s3://${bucket}/deploy/app" /opt/sensor-producer/app --region "${region}"
 chmod 0755 /opt/sensor-producer/app
+
+# Ensure MSK topics exist (auto.create can be flaky with IAM auth)
+cd /tmp
+curl -fsSL https://archive.apache.org/dist/kafka/3.6.0/kafka_2.13-3.6.0.tgz -o kafka.tgz
+tar xzf kafka.tgz
+BS="$(echo "${bootstrap}" | cut -d, -f1)"
+/tmp/kafka_2.13-3.6.0/bin/kafka-topics.sh --bootstrap-server "$BS" --create --if-not-exists --topic wsc2026-sensor-raw --partitions 2 --replication-factor 2 || true
+/tmp/kafka_2.13-3.6.0/bin/kafka-topics.sh --bootstrap-server "$BS" --create --if-not-exists --topic wsc2026-sensor-alert --partitions 2 --replication-factor 2 || true
 
 cat >/etc/systemd/system/sensor-producer.service <<EOF
 [Unit]

@@ -205,6 +205,16 @@ resource "aws_instance" "event" {
   })
 }
 
+# Intentionally missing required tags for mark2-3 Config NON_COMPLIANT check
+resource "aws_instance" "tag_noncompliant" {
+  provider                    = aws
+  ami                         = data.aws_ssm_parameter.amazon_linux_ami.value
+  instance_type               = "t3.micro"
+  subnet_id                   = aws_subnet.public_a.id
+  vpc_security_group_ids      = [aws_security_group.event.id]
+  associate_public_ip_address = true
+}
+
 resource "aws_sns_topic" "alert" {
   provider = aws
   name     = "wsc2026-event-alert"
@@ -412,6 +422,53 @@ resource "aws_s3_bucket" "config" {
   tags          = local.common_tags
 }
 
+resource "aws_s3_bucket_policy" "config" {
+  provider = aws
+  bucket   = aws_s3_bucket.config.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AWSConfigBucketPermissionsCheck"
+        Effect    = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action    = "s3:GetBucketAcl"
+        Resource  = aws_s3_bucket.config.arn
+        Condition = {
+          StringEquals = {
+            "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
+        Sid       = "AWSConfigBucketExistenceCheck"
+        Effect    = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action    = "s3:ListBucket"
+        Resource  = aws_s3_bucket.config.arn
+        Condition = {
+          StringEquals = {
+            "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
+        Sid       = "AWSConfigBucketDelivery"
+        Effect    = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.config.arn}/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl"      = "bucket-owner-full-control"
+            "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
 data "aws_iam_policy_document" "config_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -449,6 +506,8 @@ resource "aws_config_delivery_channel" "event" {
   provider       = aws
   name           = "wsc2026-event-delivery-channel"
   s3_bucket_name = aws_s3_bucket.config.bucket
+
+  depends_on = [aws_s3_bucket_policy.config]
 }
 
 resource "aws_config_configuration_recorder_status" "event" {

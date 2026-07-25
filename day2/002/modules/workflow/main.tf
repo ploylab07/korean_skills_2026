@@ -209,7 +209,8 @@ resource "aws_sfn_state_machine" "student_score" {
           Bucket = aws_s3_bucket.score.bucket
           "Key.$" = "$.key"
         }
-        Next = "ProcessStudentData"
+        ResultPath = "$.head"
+        Next       = "ProcessStudentData"
       }
       ProcessStudentData = {
         Type     = "Task"
@@ -238,7 +239,8 @@ resource "aws_sfn_state_machine" "student_score" {
           "CopySource.$" = "States.Format('${aws_s3_bucket.score.bucket}/{}', $.key)"
           "Key.$"        = "States.Format('processed/{}', States.ArrayGetItem(States.StringSplit($.key, '/'), 1))"
         }
-        Next = "DeleteProcessedSource"
+        ResultPath = "$.copyResult"
+        Next       = "DeleteProcessedSource"
       }
       DeleteProcessedSource = {
         Type     = "Task"
@@ -247,7 +249,8 @@ resource "aws_sfn_state_machine" "student_score" {
           Bucket = aws_s3_bucket.score.bucket
           "Key.$" = "$.key"
         }
-        End = true
+        ResultPath = "$.deleteResult"
+        End        = true
       }
       MoveToError = {
         Type     = "Task"
@@ -257,7 +260,8 @@ resource "aws_sfn_state_machine" "student_score" {
           "CopySource.$" = "States.Format('${aws_s3_bucket.score.bucket}/{}', $.key)"
           "Key.$"        = "States.Format('error/{}', States.ArrayGetItem(States.StringSplit($.key, '/'), 1))"
         }
-        Next = "DeleteErrorSource"
+        ResultPath = "$.copyResult"
+        Next       = "DeleteErrorSource"
       }
       DeleteErrorSource = {
         Type     = "Task"
@@ -266,7 +270,8 @@ resource "aws_sfn_state_machine" "student_score" {
           Bucket = aws_s3_bucket.score.bucket
           "Key.$" = "$.key"
         }
-        Next = "Fail"
+        ResultPath = "$.deleteResult"
+        Next       = "Fail"
       }
       Fail = {
         Type  = "Fail"
