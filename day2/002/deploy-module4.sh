@@ -178,10 +178,12 @@ if [ -z "$EC2_SG" ] || [ "$EC2_SG" = "None" ]; then
     IpProtocol=-1,IpRanges='[{CidrIp=0.0.0.0/0}]' 2>/dev/null || true
 fi
 
-# MSK broker + client port 9098
+# MSK broker ports: 9092 plaintext (Go app), 9098 IAM (Lambda)
 for src in "$LAMBDA_SG" "$EC2_SG" "$MSK_SG"; do
-  aws ec2 authorize-security-group-ingress --group-id "$MSK_SG" --ip-permissions \
-    IpProtocol=tcp,FromPort=9098,ToPort=9098,UserIdGroupPairs="[{GroupId=$src}]" 2>/dev/null || true
+  for port in 9092 9098; do
+    aws ec2 authorize-security-group-ingress --group-id "$MSK_SG" --ip-permissions \
+      IpProtocol=tcp,FromPort=$port,ToPort=$port,UserIdGroupPairs="[{GroupId=$src}]" 2>/dev/null || true
+  done
 done
 aws ec2 authorize-security-group-ingress --group-id "$MSK_SG" --ip-permissions \
   IpProtocol=tcp,FromPort=9098,ToPort=9098,UserIdGroupPairs="[{GroupId=$MSK_SG}]" 2>/dev/null || true
@@ -260,6 +262,16 @@ cat > "$WORK/lambda-policy.json" <<EOF
   "Statement": [
     {
       "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeNetworkInterfaces"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
       "Action": ["dynamodb:PutItem","dynamodb:GetItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],
       "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${DDB_TABLE}"
     },
@@ -316,7 +328,7 @@ if [ -z "$CLUSTER_ARN" ] || [ "$CLUSTER_ARN" = "None" ]; then
       \"SecurityGroups\": [\"$MSK_SG\"],
       \"StorageInfo\": {\"EbsStorageInfo\": {\"VolumeSize\": 20}}
     }" \
-    --encryption-info '{"EncryptionInTransit":{"ClientBroker":"TLS","InCluster":true}}' \
+    --encryption-info '{"EncryptionInTransit":{"ClientBroker":"TLS_PLAINTEXT","InCluster":true}}' \
     --client-authentication '{"Sasl":{"Iam":{"Enabled":true}}}' \
     --query ClusterArn --output text)
 fi
@@ -358,14 +370,23 @@ pick_runtime() {
   echo "python3.13"
 }
 
-LAMBDA_RUNTIME="${LAMBDA_RUNTIME:-}"
-if [ -z "$LAMBDA_RUNTIME" ]; then
-  LAMBDA_RUNTIME=$(pick_runtime)
-fi
+LAMBDA_RUNTIME="${LAMBDA_RUNTIME:-python3.14}"
 echo "LAMBDA_RUNTIME=$LAMBDA_RUNTIME"
 
 deploy_lambda() {
-  local fn="$1" zip="$2" env_vars="$3"
+  local fn="$1" zip="$2"
+  shift 2
+  local env_json="$WORK/${fn}-env.json"
+  python3 - "$env_json" "$@" <<'PY'
+import json, sys
+path = sys.argv[1]
+vars = {}
+for item in sys.argv[2:]:
+    key, value = item.split("=", 1)
+    vars[key] = value
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump({"Variables": vars}, fh)
+PY
   if aws lambda get-function --function-name "$fn" >/dev/null 2>&1; then
     aws lambda update-function-code --function-name "$fn" --zip-file "fileb://${WORK}/${zip}.zip" >/dev/null
     sleep 5
@@ -375,7 +396,7 @@ deploy_lambda() {
       --timeout 60 \
       --memory-size 256 \
       --vpc-config "SubnetIds=$PRIV_A,$PRIV_D,SecurityGroupIds=$LAMBDA_SG" \
-      --environment "Variables={$env_vars}" >/dev/null
+      --environment "file://${env_json}" >/dev/null
   else
     aws lambda create-function \
       --function-name "$fn" \
@@ -386,7 +407,7 @@ deploy_lambda() {
       --timeout 60 \
       --memory-size 256 \
       --vpc-config "SubnetIds=$PRIV_A,$PRIV_D,SecurityGroupIds=$LAMBDA_SG" \
-      --environment "Variables={$env_vars}" >/dev/null
+      --environment "file://${env_json}" >/dev/null
   fi
   aws lambda wait function-active-v2 --function-name "$fn" 2>/dev/null || sleep 15
 }
@@ -405,13 +426,20 @@ if [ "$STATE" != "ACTIVE" ]; then
   exit 1
 fi
 
-BOOTSTRAP=$(aws kafka get-bootstrap-brokers --cluster-arn "$CLUSTER_ARN" --query BootstrapBrokerStringSaslIam --output text)
+BOOTSTRAP=$(aws kafka get-bootstrap-brokers --cluster-arn "$CLUSTER_ARN" --query BootstrapBrokerString --output text)
+# Go producer uses plaintext 9092; strip ports if only IAM bootstrap returned
+if [ -z "$BOOTSTRAP" ] || [ "$BOOTSTRAP" = "None" ]; then
+  BOOTSTRAP=$(aws kafka get-bootstrap-brokers --cluster-arn "$CLUSTER_ARN" --query BootstrapBrokerStringSaslIam --output text)
+  BOOTSTRAP=$(echo "$BOOTSTRAP" | sed -E 's/:9098/:9092/g')
+fi
+BOOTSTRAP_IAM=$(aws kafka get-bootstrap-brokers --cluster-arn "$CLUSTER_ARN" --query BootstrapBrokerStringSaslIam --output text)
 echo "BOOTSTRAP=$BOOTSTRAP"
+echo "BOOTSTRAP_IAM=$BOOTSTRAP_IAM"
 
 deploy_lambda wsc2026-sensor-consumer sensor-consumer \
-  "DDB_TABLE=${DDB_TABLE},ALERT_TOPIC=wsc2026-sensor-alert,BOOTSTRAP_SERVER=${BOOTSTRAP}"
+  "DDB_TABLE=${DDB_TABLE}" "ALERT_TOPIC=wsc2026-sensor-alert" "BOOTSTRAP_SERVER=${BOOTSTRAP_IAM}"
 deploy_lambda wsc2026-sensor-alert-consumer alert-consumer \
-  "SNS_TOPIC_ARN=${SNS_TOPIC_ARN},S3_BUCKET=${BUCKET}"
+  "SNS_TOPIC_ARN=${SNS_TOPIC_ARN}" "S3_BUCKET=${BUCKET}"
 
 # ---------- Event Source Mappings ----------
 create_esm() {
@@ -446,6 +474,7 @@ set -e
 exec > /var/log/user-data.log 2>&1
 BUCKET="__BUCKET__"
 BOOTSTRAP="__BOOTSTRAP__"
+BOOTSTRAP_IAM="__BOOTSTRAP_IAM__"
 REGION="__REGION__"
 
 dnf install -y java-17-amazon-corretto-headless aws-cli
@@ -468,7 +497,7 @@ EOF
 for topic_part in "wsc2026-sensor-raw:3" "wsc2026-sensor-alert:1"; do
   t="${topic_part%%:*}"
   p="${topic_part##*:}"
-  /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP}" \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP_IAM}" \
     --command-config /opt/kafka/client.properties \
     --create --if-not-exists --topic "$t" --partitions "$p" --replication-factor 2 || true
 done
@@ -481,6 +510,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=AWS_REGION=${REGION}
+Environment=AWS_DEFAULT_REGION=${REGION}
 Environment=BOOTSTRAP_SERVERS=${BOOTSTRAP}
 Environment=TOPIC_RAW=wsc2026-sensor-raw
 ExecStart=/opt/app/app
@@ -498,6 +529,7 @@ USERDATA
 )
 USER_DATA="${USER_DATA//__BUCKET__/$BUCKET}"
 USER_DATA="${USER_DATA//__BOOTSTRAP__/$BOOTSTRAP}"
+USER_DATA="${USER_DATA//__BOOTSTRAP_IAM__/$BOOTSTRAP_IAM}"
 USER_DATA="${USER_DATA//__REGION__/$REGION}"
 B64_USER=$(echo "$USER_DATA" | base64 -w0)
 
@@ -517,6 +549,32 @@ if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
     --query Instances[0].InstanceId --output text)
 else
   aws ec2 start-instances --instance-ids "$INSTANCE_ID" >/dev/null 2>&1 || true
+  # Update producer on existing instance via SSM
+  FIX_B64=$(base64 -w0 <<EOF
+#!/bin/bash
+cat > /etc/systemd/system/sensor-producer.service <<UNIT
+[Unit]
+Description=WSC2026 Sensor Producer
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+Environment=AWS_REGION=${REGION}
+Environment=AWS_DEFAULT_REGION=${REGION}
+Environment=BOOTSTRAP_SERVERS=${BOOTSTRAP}
+Environment=TOPIC_RAW=wsc2026-sensor-raw
+ExecStart=/opt/app/app
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl restart sensor-producer
+EOF
+)
+  aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+    --parameters "commands=[\"echo ${FIX_B64} | base64 -d | bash\"]" >/dev/null 2>&1 || true
 fi
 echo "INSTANCE_ID=$INSTANCE_ID"
 aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"

@@ -5,9 +5,7 @@ import os
 from datetime import datetime, timezone
 
 import boto3
-from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
 from kafka import KafkaProducer
-from kafka.oauth.abstract import AbstractTokenProvider
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -15,18 +13,11 @@ logger.setLevel(logging.INFO)
 DDB_TABLE = os.environ["DDB_TABLE"]
 ALERT_TOPIC = os.environ["ALERT_TOPIC"]
 BOOTSTRAP_SERVER = os.environ["BOOTSTRAP_SERVER"]
-REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 
 ddb = boto3.resource("dynamodb")
 table = ddb.Table(DDB_TABLE)
 
 _producer = None
-
-
-class MSKTokenProvider(AbstractTokenProvider):
-    def token(self):
-        token, _ = MSKAuthTokenProvider.generate_auth_token(REGION)
-        return token
 
 
 def get_producer():
@@ -35,9 +26,7 @@ def get_producer():
         servers = [s.strip() for s in BOOTSTRAP_SERVER.split(",") if s.strip()]
         _producer = KafkaProducer(
             bootstrap_servers=servers,
-            security_protocol="SASL_SSL",
-            sasl_mechanism="OAUTHBEARER",
-            sasl_oauth_token_provider=MSKTokenProvider(),
+            security_protocol="PLAINTEXT",
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
         )
     return _producer
