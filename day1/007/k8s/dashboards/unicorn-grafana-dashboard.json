@@ -1,0 +1,99 @@
+{
+  "title": "unicorn-grafana-dashboard",
+  "uid": "unicorn-grafana-dashboard",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["unicorn"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "EKS Node CPU/Memory",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus" },
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "{{instance}} CPU %",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus" },
+          "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+          "legendFormat": "{{instance}} Memory %",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "unicorn Namespace Pod Status",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus" },
+          "expr": "sum(kube_pod_status_phase{namespace=\"unicorn\", phase=\"Running\"})",
+          "legendFormat": "Running",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "unicorn Namespace Pod Status",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus" },
+          "expr": "sum by (phase) (kube_pod_status_phase{namespace=\"unicorn\"})",
+          "legendFormat": "{{phase}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Book App Ready Pods",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus" },
+          "expr": "sum(kube_deployment_status_replicas_ready{namespace=\"unicorn\", deployment=\"unicorn-book-app-deploy\"})",
+          "legendFormat": "Ready Pods",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Book App HTTP Request Duration",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "cloudwatch" },
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch" },
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "statistic": "Average",
+          "region": "ap-northeast-2",
+          "dimensions": {},
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    }
+  ]
+}
