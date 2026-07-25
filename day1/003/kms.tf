@@ -260,6 +260,27 @@ resource "aws_kms_key" "function" {
   })
 }
 
-# Aliases alias/wsc2026-*-kms are currently held by orphaned locked CMKs from 2026-07-11.
-# They cannot be updated until those aliases are deleted (AWS Support / account recovery).
-# Resources use key ARNs directly. Re-run scripts/fix-kms-aliases.sh after aliases are freed.
+resource "aws_kms_alias" "db" {
+  name          = "alias/wsc2026-db-kms"
+  target_key_id = aws_kms_key.db.key_id
+}
+
+resource "aws_kms_alias" "ecr" {
+  name          = "alias/wsc2026-ecr-kms"
+  target_key_id = aws_kms_key.ecr.key_id
+}
+
+resource "aws_kms_alias" "eks" {
+  name          = "alias/wsc2026-eks-kms"
+  target_key_id = aws_kms_key.eks.key_id
+}
+
+resource "aws_kms_alias" "bucket" {
+  name          = "alias/wsc2026-bucket-kms"
+  target_key_id = aws_kms_key.bucket.key_id
+}
+
+resource "aws_kms_alias" "function" {
+  name          = "alias/wsc2026-function-kms"
+  target_key_id = aws_kms_key.function.key_id
+}

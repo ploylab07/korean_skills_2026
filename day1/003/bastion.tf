@@ -31,16 +31,16 @@ resource "aws_instance" "bastion" {
   subnet_id              = aws_subnet.hub_a.id
   vpc_security_group_ids = [aws_security_group.bastion.id, aws_security_group.mark.id]
   iam_instance_profile   = aws_iam_instance_profile.bastion.name
+  associate_public_ip_address = true
 
-  user_data = base64encode(<<-EOF
+  user_data = <<-EOF
     #!/bin/bash
     set -euxo pipefail
-    dnf install -y kubectl
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-    unzip -qo /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+    dnf install -y kubectl unzip
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+    unzip -qo /tmp/awscliv2.zip -d /tmp && /tmp/aws/install -u || true
     aws eks update-kubeconfig --region ${var.region} --name ${local.cluster_name} || true
   EOF
-  )
 
   tags = {
     Name = "wsc2026-bastion"

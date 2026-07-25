@@ -6,8 +6,8 @@ resource "aws_eks_cluster" "main" {
   vpc_config {
     subnet_ids              = [aws_subnet.app_a.id, aws_subnet.app_b.id, aws_subnet.hub_a.id, aws_subnet.hub_b.id]
     endpoint_private_access = true
+    # mark 4-1 expects False True. Bootstrap may open public temporarily; deploy.sh closes it.
     endpoint_public_access  = false
-    security_group_ids      = [aws_security_group.eks_cluster.id]
   }
 
   enabled_cluster_log_types = [

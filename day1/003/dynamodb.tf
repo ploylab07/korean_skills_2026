@@ -65,9 +65,8 @@ resource "aws_dynamodb_resource_policy" "book" {
   })
 }
 
-resource "aws_iam_role_policy" "book_pod" {
+resource "aws_iam_policy" "book_pod" {
   name = "wsc2026-book-pod-policy"
-  role = aws_iam_role.book_pod.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -77,6 +76,11 @@ resource "aws_iam_role_policy" "book_pod" {
       Resource = aws_dynamodb_table.book.arn
     }]
   })
+}
+
+resource "aws_iam_role_policy_attachment" "book_pod" {
+  role       = aws_iam_role.book_pod.name
+  policy_arn = aws_iam_policy.book_pod.arn
 }
 
 resource "aws_iam_policy" "book_function" {

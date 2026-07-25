@@ -93,7 +93,7 @@ metadata:
   namespace: wsc2026
 spec:
   type: ClusterIP
-  internalTrafficPolicy: PreferClose
+  trafficDistribution: PreferClose
   selector:
     app: wsc2026-book
   ports:
@@ -115,15 +115,36 @@ metadata:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-port: "8080"
+    alb.ingress.kubernetes.io/actions.response-403: |
+      {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"403","messageBody":"Forbidden"}}
 spec:
   ingressClassName: alb
+  defaultBackend:
+    service:
+      name: response-403
+      port:
+        name: use-annotation
   rules:
     - http:
         paths:
-          - path: /
+          - path: /v1/book
             pathType: Prefix
             backend:
               service:
                 name: wsc2026-book-svc
                 port:
                   number: 80
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: wsc2026-book-svc
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: response-403
+                port:
+                  name: use-annotation

@@ -29,7 +29,7 @@ resource "aws_s3_object" "index" {
   key          = "static/index.html"
   source       = "${path.module}/index.html"
   content_type = "text/html"
-  etag         = filemd5("${path.module}/index.html")
+  source_hash  = filemd5("${path.module}/index.html")
 
   server_side_encryption = "aws:kms"
   kms_key_id             = aws_kms_key.bucket.arn
@@ -40,7 +40,7 @@ resource "aws_s3_object" "main_jpeg_root" {
   key          = "main.jpeg"
   source       = "${path.module}/main.jpeg"
   content_type = "image/jpeg"
-  etag         = filemd5("${path.module}/main.jpeg")
+  source_hash  = filemd5("${path.module}/main.jpeg")
 
   server_side_encryption = "aws:kms"
   kms_key_id             = aws_kms_key.bucket.arn
@@ -51,7 +51,7 @@ resource "aws_s3_object" "main_jpeg" {
   key          = "static/main.jpeg"
   source       = "${path.module}/main.jpeg"
   content_type = "image/jpeg"
-  etag         = filemd5("${path.module}/main.jpeg")
+  source_hash  = filemd5("${path.module}/main.jpeg")
 
   server_side_encryption = "aws:kms"
   kms_key_id             = aws_kms_key.bucket.arn
@@ -73,7 +73,11 @@ data "aws_iam_policy_document" "static_oac" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.cdn.arn]
+      values = length(aws_cloudfront_distribution.cdn) > 0 ? [
+        aws_cloudfront_distribution.cdn[0].arn
+      ] : [
+        "arn:aws:cloudfront::${var.account_id}:distribution/*"
+      ]
     }
   }
 }
@@ -81,8 +85,6 @@ data "aws_iam_policy_document" "static_oac" {
 resource "aws_s3_bucket_policy" "static" {
   bucket = aws_s3_bucket.static.id
   policy = data.aws_iam_policy_document.static_oac.json
-
-  depends_on = [aws_cloudfront_distribution.cdn]
 }
 
 resource "aws_cloudfront_origin_access_control" "static" {

@@ -19,7 +19,7 @@ output "bastion_instance_id" {
 }
 
 output "cloudfront_domain" {
-  value = aws_cloudfront_distribution.cdn.domain_name
+  value = try(aws_cloudfront_distribution.cdn[0].domain_name, null)
 }
 
 output "lambda_function_url" {

@@ -1,153 +1,106 @@
 #!/usr/bin/env bash
+# day1/003 deploy: terraform (phase1) → ECR image → k8s → CloudFront (phase2)
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODULE_DIR="${ROOT_DIR}"
 REPO_ROOT="$(cd "${ROOT_DIR}/../.." && pwd)"
-
 # shellcheck disable=SC1091
-source "${REPO_ROOT}/.env"
+set -a && source "${REPO_ROOT}/.env" && set +a
 
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-2}"
-ACCOUNT_ID="163389715563"
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 CLUSTER_NAME="wsc2026-eks-cluster"
 ECR_REPO="wsc2026-book-ecr"
 IMAGE_TAG="v1.0.0"
+TF=("${REPO_ROOT}/terraform" -chdir="${ROOT_DIR}")
 
 log() { echo "[deploy] $*"; }
 
-run_terraform() {
-  "${REPO_ROOT}/terraform" -chdir="${MODULE_DIR}" "$@"
-}
+log "Phase 1: Terraform apply (infra, no CDN)"
+"${TF[@]}" init -input=false
+"${TF[@]}" apply -input=false -auto-approve -var='enable_cdn=false'
 
-log "Initializing Terraform"
-run_terraform init -input=false
-
-log "Applying network + KMS first"
-run_terraform apply -input=false -auto-approve \
-  -target=aws_vpc.main \
-  -target=aws_internet_gateway.main \
-  -target=aws_subnet.hub_a \
-  -target=aws_subnet.hub_b \
-  -target=aws_subnet.app_a \
-  -target=aws_subnet.app_b \
-  -target=aws_eip.nat_a \
-  -target=aws_eip.nat_b \
-  -target=aws_nat_gateway.nat_a \
-  -target=aws_nat_gateway.nat_b \
-  -target=aws_route_table.hub \
-  -target=aws_route_table.app_a \
-  -target=aws_route_table.app_b \
-  -target=aws_route_table_association.hub_a \
-  -target=aws_route_table_association.hub_b \
-  -target=aws_route_table_association.app_a \
-  -target=aws_route_table_association.app_b \
-  -target=aws_security_group.mark \
-  -target=aws_security_group.alb \
-  -target=aws_security_group.eks_cluster \
-  -target=aws_security_group.eks_nodes \
-  -target=aws_security_group.bastion \
-  -target=aws_security_group_rule.cluster_from_bastion \
-  -target=aws_security_group_rule.cluster_from_nodes \
-  -target=aws_iam_role.kms_admin \
-  -target=aws_iam_role.book_pod \
-  -target=aws_iam_role.book_function \
-  -target=aws_kms_key.db \
-  -target=aws_kms_alias.db \
-  -target=aws_kms_key.ecr \
-  -target=aws_kms_alias.ecr \
-  -target=aws_kms_key.eks \
-  -target=aws_kms_alias.eks \
-  -target=aws_kms_key.bucket \
-  -target=aws_kms_alias.bucket \
-  -target=aws_kms_key.function \
-  -target=aws_kms_alias.function || true
-
-log "Applying full Terraform stack"
-run_terraform apply -input=false -auto-approve
-
-log "Setting DynamoDB PITR retention to 35 days"
+log "PITR 35 days"
 aws dynamodb update-continuous-backups \
   --table-name wsc2026-book-table \
   --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true,RecoveryPeriodInDays=35 \
   --region "${AWS_DEFAULT_REGION}" || true
 
-log "Building and pushing container image ${IMAGE_TAG}"
 ECR_URL="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}"
-aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
-docker build -t "${ECR_URL}:${IMAGE_TAG}" "${MODULE_DIR}"
+log "Build & push ${ECR_URL}:${IMAGE_TAG}"
+aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" \
+  | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+docker build -t "${ECR_URL}:${IMAGE_TAG}" "${ROOT_DIR}"
 docker push "${ECR_URL}:${IMAGE_TAG}"
 
-BASTION_ID=$(run_terraform output -raw bastion_instance_id)
-ALB_SG=$(run_terraform output -raw alb_sg_id)
-HUB_SUBNETS=$(run_terraform output -json hub_subnet_ids | python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)))')
-VPC_ID=$(run_terraform output -raw vpc_id)
-ALB_CONTROLLER_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/wsc2026-alb-controller-role"
+ALB_SG=$("${TF[@]}" output -raw alb_sg_id)
+HUB_SUBNETS=$("${TF[@]}" output -json hub_subnet_ids | python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)))')
+VPC_ID=$("${TF[@]}" output -raw vpc_id)
+ALB_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/wsc2026-alb-controller-role"
 
-log "Configuring kubeconfig via bastion SSM (${BASTION_ID})"
-KUBECONFIG_CMD="aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_DEFAULT_REGION}"
+log "kubeconfig"
+aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_DEFAULT_REGION}"
 
-TMP_K8S=$(mktemp -d)
-trap 'rm -rf "${TMP_K8S}"' EXIT
-
-cp "${MODULE_DIR}/k8s/observability.yaml" "${TMP_K8S}/observability.yaml"
-
-sed "s|PLACEHOLDER_ECR_IMAGE|${ECR_URL}:${IMAGE_TAG}|g" \
-  "${MODULE_DIR}/k8s/book-app.yaml" > "${TMP_K8S}/book-app.yaml"
-sed "s|PLACEHOLDER_ALB_SG|${ALB_SG}|g; s|PLACEHOLDER_HUB_SUBNETS|${HUB_SUBNETS}|g" \
-  "${TMP_K8S}/book-app.yaml" > "${TMP_K8S}/book-app-final.yaml"
-mv "${TMP_K8S}/book-app-final.yaml" "${TMP_K8S}/book-app.yaml"
-
-sed "s|PLACEHOLDER_VPC_ID|${VPC_ID}|g" \
-  "${MODULE_DIR}/k8s/alb-controller.yaml" > "${TMP_K8S}/alb-controller.yaml"
-
-cat > "${TMP_K8S}/alb-controller-patch.yaml" <<EOF
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: aws-load-balancer-controller
-  namespace: kube-system
-  annotations:
-    eks.amazonaws.com/role-arn: ${ALB_CONTROLLER_ROLE}
-EOF
-
-apply_via_bastion() {
-  local manifest_dir="$1"
-  tar czf /tmp/k8s-manifests.tgz -C "${manifest_dir}" .
-  B64=$(base64 -w0 /tmp/k8s-manifests.tgz)
-
-  aws ssm send-command \
-    --instance-ids "${BASTION_ID}" \
-    --document-name "AWS-RunShellScript" \
-    --parameters commands="[
-      \"set -e\",
-      \"mkdir -p /tmp/k8s-deploy\",
-      \"echo ${B64} | base64 -d > /tmp/k8s-manifests.tgz\",
-      \"tar xzf /tmp/k8s-manifests.tgz -C /tmp/k8s-deploy\",
-      \"${KUBECONFIG_CMD}\",
-      \"kubectl apply -f /tmp/k8s-deploy/alb-controller-patch.yaml\",
-      \"kubectl apply -f /tmp/k8s-deploy/alb-controller.yaml\",
-      \"kubectl apply -f /tmp/k8s-deploy/book-app.yaml\",
-      \"kubectl apply -f /tmp/k8s-deploy/observability.yaml\",
-      \"kubectl -n wsc2026 rollout status deploy/wsc2026-book-deploy --timeout=600s\"
-    ]" \
-    --query 'Command.CommandId' --output text
-}
-
-CMD_ID=$(apply_via_bastion "${TMP_K8S}")
-log "Waiting for SSM command ${CMD_ID}"
+# Wait for nodes
 for i in $(seq 1 60); do
-  STATUS=$(aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${BASTION_ID}" --query Status --output text 2>/dev/null || echo Pending)
-  if [[ "${STATUS}" == "Success" ]]; then
-    log "Kubernetes deployment completed"
-    break
-  elif [[ "${STATUS}" == "Failed" ]]; then
-    aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${BASTION_ID}" --query StandardErrorContent --output text || true
-    log "SSM command failed - try manual kubectl from bastion"
-    break
-  fi
-  sleep 10
+  READY=$(kubectl get nodes --no-headers 2>/dev/null | grep -c ' Ready' || true)
+  log "Ready nodes: ${READY}"
+  [[ "${READY}" -ge 2 ]] && break
+  sleep 15
 done
 
-log "Deployment finished"
-run_terraform output
+TMP=$(mktemp -d)
+trap 'rm -rf "${TMP}"' EXIT
+
+sed "s|PLACEHOLDER_ECR_IMAGE|${ECR_URL}:${IMAGE_TAG}|g; s|PLACEHOLDER_ALB_SG|${ALB_SG}|g; s|PLACEHOLDER_HUB_SUBNETS|${HUB_SUBNETS}|g" \
+  "${ROOT_DIR}/k8s/book-app.yaml" > "${TMP}/book-app.yaml"
+sed "s|PLACEHOLDER_VPC_ID|${VPC_ID}|g" \
+  "${ROOT_DIR}/k8s/alb-controller.yaml" > "${TMP}/alb-controller.yaml"
+
+# Install AWS LB Controller via helm if available, else raw manifests
+if command -v helm >/dev/null 2>&1; then
+  helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
+  helm repo update
+  kubectl create sa aws-load-balancer-controller -n kube-system --dry-run=client -o yaml | kubectl apply -f -
+  kubectl annotate sa aws-load-balancer-controller -n kube-system \
+    eks.amazonaws.com/role-arn="${ALB_ROLE}" --overwrite
+  helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+    -n kube-system \
+    --set clusterName="${CLUSTER_NAME}" \
+    --set serviceAccount.create=false \
+    --set serviceAccount.name=aws-load-balancer-controller \
+    --set region="${AWS_DEFAULT_REGION}" \
+    --set vpcId="${VPC_ID}" \
+    --wait --timeout 10m || true
+else
+  kubectl apply -f "${TMP}/alb-controller.yaml" || true
+fi
+
+kubectl apply -f "${TMP}/book-app.yaml"
+kubectl apply -f "${ROOT_DIR}/k8s/observability.yaml" || true
+
+kubectl -n wsc2026 rollout status deploy/wsc2026-book-deploy --timeout=600s || true
+
+log "Wait for ALB"
+ALB_DNS=""
+for i in $(seq 1 60); do
+  ALB_DNS=$(kubectl get ingress -n wsc2026 wsc2026-book-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  [[ -n "${ALB_DNS}" ]] && break
+  sleep 15
+done
+log "ALB DNS: ${ALB_DNS}"
+
+if [[ -n "${ALB_DNS}" ]]; then
+  log "Phase 2: CloudFront + WAF"
+  "${TF[@]}" apply -input=false -auto-approve \
+    -var='enable_cdn=true' \
+    -var="alb_dns_name=${ALB_DNS}"
+fi
+
+# Final: private-only EKS endpoint for mark.sh
+log "Set EKS endpoint publicAccess=false"
+aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_DEFAULT_REGION}" \
+  --resources-vpc-config endpointPublicAccess=false,endpointPrivateAccess=true || true
+
+log "Done"
+"${TF[@]}" output

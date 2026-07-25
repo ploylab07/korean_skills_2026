@@ -100,8 +100,10 @@ resource "aws_wafv2_web_acl" "cdn" {
 }
 
 resource "aws_cloudfront_distribution" "cdn" {
+  count    = var.enable_cdn && var.alb_dns_name != "" ? 1 : 0
   provider = aws.us_east_1
-  enabled             = true
+  enabled  = true
+  # Root object under static/ prefix so / serves the landing page
   default_root_object = "static/index.html"
 
   tags = {
@@ -115,14 +117,14 @@ resource "aws_cloudfront_distribution" "cdn" {
   }
 
   origin {
-    domain_name = aws_lb.app.dns_name
+    domain_name = var.alb_dns_name
     origin_id   = "ALB-booking"
 
     custom_origin_config {
       http_port              = 80
       https_port             = 443
       origin_protocol_policy = "http-only"
-      origin_ssl_protocols     = ["TLSv1.2"]
+      origin_ssl_protocols   = ["TLSv1.2"]
     }
   }
 
@@ -134,7 +136,7 @@ resource "aws_cloudfront_distribution" "cdn" {
       http_port              = 443
       https_port             = 443
       origin_protocol_policy = "https-only"
-      origin_ssl_protocols     = ["TLSv1.2"]
+      origin_ssl_protocols   = ["TLSv1.2"]
     }
   }
 
@@ -147,12 +149,13 @@ resource "aws_cloudfront_distribution" "cdn" {
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/booking*"
-    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods         = ["GET", "HEAD"]
-    target_origin_id       = "ALB-booking"
-    viewer_protocol_policy = "redirect-to-https"
-    cache_policy_id        = local.cache_policy_disabled
+    path_pattern             = "/booking*"
+    allowed_methods          = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods           = ["GET", "HEAD"]
+    target_origin_id         = "ALB-booking"
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = local.cache_policy_disabled
+    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
 
     function_association {
       event_type   = "viewer-request"
@@ -161,12 +164,13 @@ resource "aws_cloudfront_distribution" "cdn" {
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/v1/book*"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD"]
-    target_origin_id       = "Lambda-book-get"
-    viewer_protocol_policy = "redirect-to-https"
-    cache_policy_id        = local.cache_policy_disabled
+    path_pattern             = "/v1/book*"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS"]
+    cached_methods           = ["GET", "HEAD"]
+    target_origin_id         = "Lambda-book-get"
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = local.cache_policy_disabled
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
   }
 
   restrictions {
@@ -185,6 +189,5 @@ resource "aws_cloudfront_distribution" "cdn" {
     aws_s3_object.index,
     aws_s3_object.main_jpeg,
     aws_lambda_function_url.book_get,
-    aws_lb.app,
   ]
 }
