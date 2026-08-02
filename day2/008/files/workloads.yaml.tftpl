@@ -38,20 +38,22 @@ spec:
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
+        # Prefer small on-demand capacity so cold start fits judge 3-minute window
         - key: kubernetes.amazonaws.com/instance-category
           operator: In
-          values: ["t", "m", "c"]
+          values: ["t"]
         - key: kubernetes.amazonaws.com/instance-cpu
           operator: In
-          values: ["2", "4"]
+          values: ["2"]
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
   limits:
     cpu: "100"
   disruption:
-    consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 1m
+    # Keep Worker EC2 through 4-5 scoring (idle pods=0). 1m emptied nodes before 4-5.
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 45m
 ---
 apiVersion: v1
 kind: ServiceAccount

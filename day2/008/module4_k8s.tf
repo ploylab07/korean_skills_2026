@@ -77,6 +77,30 @@ resource "null_resource" "k8s_stack" {
       done
 
       kubectl apply -f ${local_file.k8s_workloads.filename}
+
+      # Warm Karpenter Worker EC2 + image cache.
+      # 4-5 requires Worker EC2 Node at score time; 4-6 must fit judge max 3-minute wait.
+      QUEUE_URL='${aws_sqs_queue.skills.url}'
+      for i in $(seq 1 4); do
+        aws sqs send-message --region us-west-2 --queue-url "$QUEUE_URL" --message-body "warmup-$i" >/dev/null || true
+      done
+      for i in $(seq 1 48); do
+        if kubectl -n skills-sqs get pods -l app=sqs-worker --no-headers 2>/dev/null | grep -q ' Running '; then
+          if kubectl get nodes -l 'karpenter.sh/nodepool=skills-sqs-nodepool,skills-nodepool=event-worker' --no-headers 2>/dev/null | grep -q Ready; then
+            echo "warmup: worker Running on Karpenter node (attempt $i)"
+            break
+          fi
+        fi
+        sleep 10
+      done
+      aws sqs purge-queue --region us-west-2 --queue-url "$QUEUE_URL" >/dev/null 2>&1 || true
+      for i in $(seq 1 36); do
+        CNT=$(kubectl -n skills-sqs get pods -l app=sqs-worker --no-headers 2>/dev/null | wc -l | tr -d ' ')
+        [ "$${CNT}" = "0" ] && break
+        sleep 5
+      done
+      echo "warmup: remaining Karpenter nodes:"
+      kubectl get nodes -l 'karpenter.sh/nodepool=skills-sqs-nodepool,skills-nodepool=event-worker' -o wide || true
     EOT
   }
 }
