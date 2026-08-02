@@ -194,8 +194,8 @@ resource "aws_cloudwatch_event_rule" "ceh_sg" {
   name        = "skills-ceh-sg-change-rule"
   description = "Detect AuthorizeSecurityGroupIngress"
   event_pattern = jsonencode({
-    source      = ["aws.ec2"]
-    detail-type = ["AWS API Call via CloudTrail"]
+    source         = ["aws.ec2"]
+    "detail-type"  = ["AWS API Call via CloudTrail"]
     detail = {
       eventSource = ["ec2.amazonaws.com"]
       eventName   = ["AuthorizeSecurityGroupIngress"]

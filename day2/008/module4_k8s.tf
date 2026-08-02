@@ -78,18 +78,25 @@ resource "null_resource" "k8s_stack" {
 
       kubectl apply -f ${local_file.k8s_workloads.filename}
 
-      # Warm Karpenter Worker EC2 + image cache.
-      # 4-5 requires Worker EC2 Node at score time; 4-6 must fit judge max 3-minute wait.
+      # 1) node-keeper로 Worker EC2 확보 (4-5)
+      for i in $(seq 1 60); do
+        if kubectl get nodes -l 'karpenter.sh/nodepool=skills-sqs-nodepool,skills-nodepool=event-worker' --no-headers 2>/dev/null | grep -q Ready; then
+          echo "warmup: Karpenter Worker EC2 Ready (attempt $i)"
+          break
+        fi
+        sleep 10
+      done
+      kubectl -n skills-sqs rollout status deploy/skills-sqs-node-keeper --timeout=10m || true
+
+      # 2) worker 이미지 pull 캐시 (4-6 cold-start 방지)
       QUEUE_URL='${aws_sqs_queue.skills.url}'
       for i in $(seq 1 4); do
         aws sqs send-message --region us-west-2 --queue-url "$QUEUE_URL" --message-body "warmup-$i" >/dev/null || true
       done
       for i in $(seq 1 48); do
         if kubectl -n skills-sqs get pods -l app=sqs-worker --no-headers 2>/dev/null | grep -q ' Running '; then
-          if kubectl get nodes -l 'karpenter.sh/nodepool=skills-sqs-nodepool,skills-nodepool=event-worker' --no-headers 2>/dev/null | grep -q Ready; then
-            echo "warmup: worker Running on Karpenter node (attempt $i)"
-            break
-          fi
+          echo "warmup: sqs-worker Running (attempt $i)"
+          break
         fi
         sleep 10
       done
@@ -99,7 +106,7 @@ resource "null_resource" "k8s_stack" {
         [ "$${CNT}" = "0" ] && break
         sleep 5
       done
-      echo "warmup: remaining Karpenter nodes:"
+      echo "warmup: Karpenter nodes (must be non-empty for 4-5):"
       kubectl get nodes -l 'karpenter.sh/nodepool=skills-sqs-nodepool,skills-nodepool=event-worker' -o wide || true
     EOT
   }

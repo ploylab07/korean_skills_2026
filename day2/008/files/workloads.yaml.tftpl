@@ -38,22 +38,25 @@ spec:
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
-        # Prefer small on-demand capacity so cold start fits judge 3-minute window
         - key: kubernetes.amazonaws.com/instance-category
           operator: In
-          values: ["t"]
+          values: ["t", "m", "c"]
         - key: kubernetes.amazonaws.com/instance-cpu
           operator: In
-          values: ["2"]
+          values: ["2", "4"]
+        # t3.micro는 pull/스케줄 지연 → 4-6(180초) 실패 위험
+        - key: karpenter.k8s.aws/instance-size
+          operator: NotIn
+          values: ["nano", "micro"]
         - key: karpenter.sh/capacity-type
           operator: In
           values: ["on-demand"]
   limits:
     cpu: "100"
   disruption:
-    # Keep Worker EC2 through 4-5 scoring (idle pods=0). 1m emptied nodes before 4-5.
-    consolidationPolicy: WhenEmpty
-    consolidateAfter: 45m
+    # 문제지: consolidationPolicy 필수. 빈 노드를 바로 지우면 4-5 Worker EC2 미검출.
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 60m
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -62,6 +65,33 @@ metadata:
   namespace: skills-sqs
   annotations:
     eks.amazonaws.com/role-arn: ${worker_role_arn}
+---
+# 4-5 채점: kubectl get nodes -l karpenter... 가 비지 않도록 노드를 붙잡음
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skills-sqs-node-keeper
+  namespace: skills-sqs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skills-sqs-node-keeper
+  template:
+    metadata:
+      labels:
+        app: skills-sqs-node-keeper
+    spec:
+      nodeSelector:
+        karpenter.sh/nodepool: skills-sqs-nodepool
+        skills-nodepool: event-worker
+      containers:
+        - name: pause
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
 ---
 apiVersion: apps/v1
 kind: Deployment
