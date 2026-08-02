@@ -1,5 +1,6 @@
-resource "aws_launch_template" "nodes" {
-  name_prefix = "wskorea26-node-"
+resource "aws_launch_template" "addon" {
+  name_prefix = "wskorea26-addon-"
+  # instance_types는 node group에만 지정 (5-3 mark: nodegroup.instanceTypes[0]=t3.medium)
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -10,12 +11,39 @@ resource "aws_launch_template" "nodes" {
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name = "wskorea26-node"
+      Name = "wskorea26-addon-node"
     }
   }
 
-  lifecycle {
-    ignore_changes = [tag_specifications]
+  tag_specifications {
+    resource_type = "volume"
+    tags = {
+      Name = "wskorea26-addon-node"
+    }
+  }
+}
+
+resource "aws_launch_template" "app" {
+  name_prefix = "wskorea26-app-"
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "wskorea26-app-node"
+    }
+  }
+
+  tag_specifications {
+    resource_type = "volume"
+    tags = {
+      Name = "wskorea26-app-node"
+    }
   }
 }
 
@@ -103,8 +131,8 @@ resource "aws_eks_node_group" "addon" {
   }
 
   launch_template {
-    id      = aws_launch_template.nodes.id
-    version = aws_launch_template.nodes.latest_version
+    id      = aws_launch_template.addon.id
+    version = aws_launch_template.addon.latest_version
   }
 
   tags = {
@@ -118,7 +146,7 @@ resource "aws_eks_node_group" "addon" {
   ]
 
   lifecycle {
-    ignore_changes = [launch_template[0].version, scaling_config[0].desired_size]
+    ignore_changes = [scaling_config[0].desired_size]
   }
 }
 
@@ -146,8 +174,8 @@ resource "aws_eks_node_group" "app" {
   }
 
   launch_template {
-    id      = aws_launch_template.nodes.id
-    version = aws_launch_template.nodes.latest_version
+    id      = aws_launch_template.app.id
+    version = aws_launch_template.app.latest_version
   }
 
   tags = {
@@ -161,6 +189,42 @@ resource "aws_eks_node_group" "app" {
   ]
 
   lifecycle {
-    ignore_changes = [launch_template[0].version, scaling_config[0].desired_size]
+    ignore_changes = [scaling_config[0].desired_size]
   }
+}
+
+# 5-4: kube-system 워크로드(coredns, pod-identity 등)가 app 노드에 있으면
+# sort -u 결과에 addon+app이 함께 나와 감점됨 → addon으로 고정
+resource "null_resource" "pin_kube_system_to_addon" {
+  triggers = {
+    cluster = aws_eks_cluster.main.endpoint
+    addon   = aws_eks_node_group.addon.id
+    app     = aws_eks_node_group.app.id
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    environment = {
+      AWS_DEFAULT_REGION = var.region
+      CLUSTER_NAME       = aws_eks_cluster.main.name
+      KUBECONFIG         = "${pathexpand("~")}/.kube/wskorea26.yaml"
+    }
+    command = <<-EOT
+      set -euo pipefail
+      aws eks update-kubeconfig --region "$AWS_DEFAULT_REGION" --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG" >/dev/null
+      export KUBECONFIG
+      # CoreDNS → addon only
+      kubectl -n kube-system patch deployment coredns --type strategic -p '{"spec":{"template":{"spec":{"nodeSelector":{"node-type":"addon"}}}}}' || true
+      # eks-pod-identity-agent DaemonSet → addon only (app taint 무시하는 DS 차단)
+      if kubectl -n kube-system get ds eks-pod-identity-agent >/dev/null 2>&1; then
+        kubectl -n kube-system patch ds eks-pod-identity-agent --type strategic -p '{"spec":{"template":{"spec":{"nodeSelector":{"node-type":"addon"},"tolerations":[]}}}}' || true
+      fi
+      # 기타 kube-system Deployment도 addon으로
+      for d in $(kubectl -n kube-system get deploy -o name 2>/dev/null); do
+        kubectl -n kube-system patch "$d" --type strategic -p '{"spec":{"template":{"spec":{"nodeSelector":{"node-type":"addon"}}}}}' || true
+      done
+    EOT
+  }
+
+  depends_on = [aws_eks_node_group.addon, aws_eks_node_group.app]
 }

@@ -71,7 +71,11 @@ resource "kubernetes_deployment" "book" {
     }
   }
 
-  depends_on = [null_resource.book_image, aws_eks_node_group.app]
+  depends_on = [
+    null_resource.book_image,
+    aws_eks_node_group.app,
+    null_resource.pin_kube_system_to_addon,
+  ]
 }
 
 resource "kubernetes_service" "book" {
@@ -136,14 +140,30 @@ resource "helm_release" "kube_prometheus_stack" {
     name  = "prometheusOperator.admissionWebhooks.patch.enabled"
     value = "false"
   }
-  # quay.io pull timeouts from private subnets — Grafana-only is enough for scoring
+  # Monitoring 10-x: Prometheus 필수. quay.io 타임아웃 → ghcr/public.ecr 이미지
   set {
     name  = "prometheusOperator.enabled"
-    value = "false"
+    value = "true"
+  }
+  set {
+    name  = "prometheusOperator.image.registry"
+    value = "ghcr.io"
+  }
+  set {
+    name  = "prometheusOperator.image.repository"
+    value = "prometheus-operator/prometheus-operator"
   }
   set {
     name  = "prometheus.enabled"
-    value = "false"
+    value = "true"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.image.registry"
+    value = "public.ecr.aws"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.image.repository"
+    value = "prometheus/prometheus"
   }
   set {
     name  = "alertmanager.enabled"
@@ -158,6 +178,18 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "true"
   }
   set {
+    name  = "prometheus-node-exporter.nodeSelector.node-type"
+    value = "addon"
+  }
+  set {
+    name  = "prometheus-node-exporter.image.registry"
+    value = "public.ecr.aws"
+  }
+  set {
+    name  = "prometheus-node-exporter.image.repository"
+    value = "prometheus/node-exporter"
+  }
+  set {
     name  = "grafana.service.type"
     value = "ClusterIP"
   }
@@ -165,8 +197,20 @@ resource "helm_release" "kube_prometheus_stack" {
     name  = "grafana.service.port"
     value = "3000"
   }
+  set {
+    name  = "grafana.sidecar.datasources.enabled"
+    value = "true"
+  }
+  set {
+    name  = "grafana.sidecar.datasources.defaultDatasourceEnabled"
+    value = "true"
+  }
+  set {
+    name  = "grafana.sidecar.datasources.uid"
+    value = "prometheus"
+  }
 
-  depends_on = [aws_eks_node_group.addon]
+  depends_on = [aws_eks_node_group.addon, null_resource.pin_kube_system_to_addon]
 }
 
 resource "kubernetes_config_map" "dashboard" {
