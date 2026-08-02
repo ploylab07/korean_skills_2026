@@ -1,47 +1,44 @@
+# Supplemental helm values (image mirrors + addon-only scheduling)
+# Secrets/admin user are set via terraform `set` / `set_sensitive`.
+
+prometheusOperator:
+  enabled: true
+  admissionWebhooks:
+    enabled: false
+    patch:
+      enabled: false
+  nodeSelector:
+    node-type: addon
+  image:
+    registry: ghcr.io
+    repository: prometheus-operator/prometheus-operator
+
+prometheus:
+  enabled: true
+  prometheusSpec:
+    nodeSelector:
+      node-type: addon
+    image:
+      registry: public.ecr.aws
+      repository: prometheus/prometheus
+    retention: 7d
+
+alertmanager:
+  enabled: false
+
 grafana:
-  adminUser: skills-001-admin
-  adminPassword: "$korea26!!"
   nodeSelector:
     node-type: addon
   service:
     type: ClusterIP
-  ingress:
-    enabled: false
-  persistence:
-    enabled: false
-  dashboardProviders:
-    dashboardproviders.yaml:
-      apiVersion: 1
-      providers:
-      - name: default
-        orgId: 1
-        folder: ""
-        type: file
-        disableDeletion: false
-        editable: true
-        options:
-          path: /var/lib/grafana/dashboards/default
-  dashboards:
-    default:
-      wskorea26-monitoring:
-        gnetId: 15760
-        revision: 1
-        datasource: Prometheus
-
-prometheus:
-  prometheusSpec:
-    nodeSelector:
-      node-type: addon
-    retention: 7d
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-
-alertmanager:
-  alertmanagerSpec:
-    nodeSelector:
-      node-type: addon
+    port: 3000
+  sidecar:
+    dashboards:
+      enabled: true
+    datasources:
+      enabled: true
+      defaultDatasourceEnabled: true
+      uid: prometheus
 
 kube-state-metrics:
   nodeSelector:
@@ -50,9 +47,8 @@ kube-state-metrics:
 prometheus-node-exporter:
   nodeSelector:
     node-type: addon
-  tolerations:
-  - operator: Exists
-
-operator:
-  nodeSelector:
-    node-type: addon
+  # Do NOT tolerate app taints — monitoring stays on addon NG
+  tolerations: []
+  image:
+    registry: public.ecr.aws
+    repository: prometheus/node-exporter

@@ -99,6 +99,7 @@ resource "helm_release" "kube_prometheus_stack" {
   chart      = "kube-prometheus-stack"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
   timeout    = 900
+  values     = [file("${path.module}/k8s/monitoring/values.yaml")]
 
   set {
     name  = "grafana.adminUser"
@@ -140,7 +141,8 @@ resource "helm_release" "kube_prometheus_stack" {
     name  = "prometheusOperator.admissionWebhooks.patch.enabled"
     value = "false"
   }
-  # Monitoring 10-x: Prometheus 필수. quay.io 타임아웃 → ghcr/public.ecr 이미지
+  # Monitoring 10-x: Prometheus 필수 (패널 메트릭 없으면 수동 채점 감점)
+  # quay.io 타임아웃 회피
   set {
     name  = "prometheusOperator.enabled"
     value = "true"
