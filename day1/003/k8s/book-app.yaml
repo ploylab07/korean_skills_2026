@@ -101,6 +101,20 @@ spec:
       targetPort: 8080
       protocol: TCP
 ---
+# Dummy service for ALB fixed-response 403 action (mark 5-1 expects two Services)
+apiVersion: v1
+kind: Service
+metadata:
+  name: response-403
+  namespace: wsc2026
+spec:
+  type: ClusterIP
+  ports:
+    - name: use-annotation
+      port: 80
+      targetPort: 80
+      protocol: TCP
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -127,6 +141,13 @@ spec:
   rules:
     - http:
         paths:
+          - path: /booking
+            pathType: Prefix
+            backend:
+              service:
+                name: wsc2026-book-svc
+                port:
+                  number: 80
           - path: /v1/book
             pathType: Prefix
             backend:

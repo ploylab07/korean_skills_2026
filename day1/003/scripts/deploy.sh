@@ -20,6 +20,15 @@ log "Phase 1: Terraform apply (infra, no CDN)"
 "${TF[@]}" init -input=false
 "${TF[@]}" apply -input=false -auto-approve -var='enable_cdn=false'
 
+log "Enable EKS public endpoint for bootstrap kubectl"
+aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_DEFAULT_REGION}" \
+  --resources-vpc-config endpointPublicAccess=true,endpointPrivateAccess=true >/dev/null || true
+for i in $(seq 1 30); do
+  PUB=$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.endpointPublicAccess' --output text 2>/dev/null || echo False)
+  [[ "${PUB}" == "True" ]] && break
+  sleep 10
+done
+
 log "PITR 35 days"
 aws dynamodb update-continuous-backups \
   --table-name wsc2026-book-table \

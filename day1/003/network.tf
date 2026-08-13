@@ -282,3 +282,24 @@ resource "aws_security_group_rule" "cluster_from_nodes" {
   security_group_id        = aws_security_group.eks_cluster.id
   source_security_group_id = aws_security_group.eks_nodes.id
 }
+
+# EKS managed node pods use the cluster SG; ALB health/traffic needs 8080 (and 80).
+resource "aws_security_group_rule" "cluster_from_alb_8080" {
+  type                     = "ingress"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.eks_cluster.id
+  source_security_group_id = aws_security_group.alb.id
+  description              = "ALB to pods on 8080"
+}
+
+resource "aws_security_group_rule" "cluster_from_alb_80" {
+  type                     = "ingress"
+  from_port                = 80
+  to_port                  = 80
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.eks_cluster.id
+  source_security_group_id = aws_security_group.alb.id
+  description              = "ALB to pods on 80"
+}
