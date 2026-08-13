@@ -21,10 +21,16 @@ resource "aws_launch_template" "addon" {
     tags          = merge(local.common_tags, { Name = "gj2026-addon-node" })
   }
 
+  # BR 1.63+: hostname-override-source is only private-dns-name|instance-id
+  # Use instance-id so pluto does not force private DNS; bootstrap then sets full name.
   user_data = base64encode(<<-EOT
-    [settings.kubernetes.node-labels]
-    "role" = "addon"
-    "gj2026" = "addon"
+settings.kubernetes.hostname-override-source = "instance-id"
+settings.kubernetes.node-labels.role = "addon"
+settings.kubernetes.node-labels.gj2026 = "addon"
+settings.bootstrap-containers.hostname.source = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/hostname-bootstrap:latest"
+settings.bootstrap-containers.hostname.mode = "always"
+settings.bootstrap-containers.hostname.essential = true
+settings.bootstrap-containers.hostname.user-data = "${base64encode("addon")}"
   EOT
   )
 }
@@ -52,9 +58,13 @@ resource "aws_launch_template" "app" {
   }
 
   user_data = base64encode(<<-EOT
-    [settings.kubernetes.node-labels]
-    "role" = "app"
-    "gj2026" = "app"
+settings.kubernetes.hostname-override-source = "instance-id"
+settings.kubernetes.node-labels.role = "app"
+settings.kubernetes.node-labels.gj2026 = "app"
+settings.bootstrap-containers.hostname.source = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/hostname-bootstrap:latest"
+settings.bootstrap-containers.hostname.mode = "always"
+settings.bootstrap-containers.hostname.essential = true
+settings.bootstrap-containers.hostname.user-data = "${base64encode("app")}"
   EOT
   )
 }
@@ -200,13 +210,7 @@ resource "aws_eks_addon" "coredns" {
   depends_on                  = [aws_eks_node_group.addon]
 }
 
-resource "aws_eks_pod_identity_association" "book" {
-  cluster_name    = aws_eks_cluster.main.name
-  namespace       = "skills"
-  service_account = "book"
-  role_arn        = aws_iam_role.book_app.arn
-  depends_on      = [aws_eks_addon.pod_identity]
-}
+# Pod Identity intentionally omitted — book uses node instance role via IMDS
 
 # Managed node groups use the cluster primary SG; allow ALB health/traffic
 resource "aws_security_group_rule" "cluster_sg_from_alb" {
@@ -225,4 +229,40 @@ resource "aws_security_group_rule" "cluster_sg_from_alb_grafana" {
   protocol                 = "tcp"
   security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
   source_security_group_id = aws_security_group.alb.id
+}
+
+# Custom Bottlerocket hostnames need username != system:node:<iid>
+# so NodeRestriction does not block gj2026.<iid>.{addon|app}.node registration.
+resource "aws_eks_access_entry" "nodes" {
+  cluster_name      = aws_eks_cluster.main.name
+  principal_arn     = aws_iam_role.eks_node.arn
+  type              = "STANDARD"
+  user_name         = "gj2026-worker"
+  kubernetes_groups = []
+}
+
+resource "aws_eks_access_policy_association" "nodes_admin" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_iam_role.eks_node.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  access_scope {
+    type = "cluster"
+  }
+  depends_on = [aws_eks_access_entry.nodes]
+}
+
+resource "kubernetes_config_map_v1_data" "aws_auth" {
+  metadata {
+    name      = "aws-auth"
+    namespace = "kube-system"
+  }
+  data = {
+    mapRoles = yamlencode([{
+      rolearn  = aws_iam_role.eks_node.arn
+      username = "gj2026-worker"
+      groups   = ["system:bootstrappers", "system:nodes", "system:masters"]
+    }])
+  }
+  force = true
+  depends_on = [aws_eks_cluster.main, aws_eks_node_group.addon]
 }

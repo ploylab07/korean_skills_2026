@@ -55,6 +55,53 @@ resource "aws_iam_role_policy_attachment" "node_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Book app uses node instance role (IMDS) — avoid broken Pod Identity credential path
+resource "aws_iam_role_policy" "node_ddb_cw" {
+  name = "gj2026-node-ddb-cw"
+  role = aws_iam_role.eks_node.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:UpdateItem",
+          "dynamodb:DescribeTable"
+        ]
+        Resource = [
+          aws_dynamodb_table.books.arn,
+          "${aws_dynamodb_table.books.arn}/index/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = [aws_kms_key.db.arn]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # Book app IRSA / Pod Identity role
 data "aws_iam_policy_document" "book_assume" {
   statement {

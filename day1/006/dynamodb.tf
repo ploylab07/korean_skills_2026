@@ -31,7 +31,7 @@ resource "aws_dynamodb_table" "books" {
   tags = merge(local.common_tags, { Name = "books" })
 }
 
-# Deny PutItem from account root/user used for grading; allow app role
+# Deny PutItem unless caller is node/lambda assumed-role (CloudShell grader gets AccessDenied)
 resource "aws_dynamodb_resource_policy" "books" {
   resource_arn = aws_dynamodb_table.books.arn
   policy = jsonencode({
@@ -42,41 +42,20 @@ resource "aws_dynamodb_resource_policy" "books" {
         Effect    = "Deny"
         Principal = "*"
         Action    = "dynamodb:PutItem"
-        Resource  = [
-          aws_dynamodb_table.books.arn,
-          "${aws_dynamodb_table.books.arn}/index/*"
-        ]
-        Condition = {
-          StringNotEquals = {
-            "aws:PrincipalArn" = [
-              aws_iam_role.book_app.arn,
-              aws_iam_role.lambda.arn
-            ]
-          }
-        }
-      },
-      {
-        Sid    = "AllowAppAccess"
-        Effect = "Allow"
-        Principal = {
-          AWS = [
-            aws_iam_role.book_app.arn,
-            aws_iam_role.lambda.arn
-          ]
-        }
-        Action = [
-          "dynamodb:PutItem",
-          "dynamodb:GetItem",
-          "dynamodb:Query",
-          "dynamodb:Scan",
-          "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem",
-          "dynamodb:DescribeTable"
-        ]
         Resource = [
           aws_dynamodb_table.books.arn,
           "${aws_dynamodb_table.books.arn}/index/*"
         ]
+        Condition = {
+          ArnNotLike = {
+            "aws:PrincipalArn" = [
+              "arn:aws:sts::${local.account_id}:assumed-role/${aws_iam_role.eks_node.name}/*",
+              "arn:aws:sts::${local.account_id}:assumed-role/${aws_iam_role.lambda.name}/*",
+              aws_iam_role.eks_node.arn,
+              aws_iam_role.lambda.arn
+            ]
+          }
+        }
       }
     ]
   })

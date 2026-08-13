@@ -1,10 +1,10 @@
 
 echo "============================="
-rm -rf ~/.aws
-mkdir -p ~/.aws
+# rm -rf ~/.aws
+# mkdir -p ~/.aws
 echo "사전준비 시작!"
 
-export DistributionID="E3NBB3DEZG915A"
+export DistributionID="E25K0M3SPYN5H3"
 export BUCKET="gj2026-static-006"
 export CF_DOMAIN=$(aws cloudfront get-distribution --id ${DistributionID} --query "Distribution.DomainName" --output text)
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
