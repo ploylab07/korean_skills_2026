@@ -35,7 +35,7 @@ spec:
         effect: NoSchedule
       containers:
       - name: order-processor
-        image: 163389715563.dkr.ecr.ap-northeast-2.amazonaws.com/skm-order-processor:latest
+        image: ${image}
         ports:
         - containerPort: 8080
         resources:
@@ -46,7 +46,7 @@ spec:
         - name: AWS_REGION
           value: ap-northeast-2
         - name: SQS_QUEUE_URL
-          value: "https://sqs.ap-northeast-2.amazonaws.com/163389715563/skm-order-queue"
+          value: "${queue_url}"
         - name: PROCESSING_TIME
           value: "10"
         readinessProbe:

@@ -28,7 +28,7 @@ spec:
         values: ["amd64"]
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 60s
+    consolidateAfter: 30s
     budgets:
     - nodes: "100%"
 ---
@@ -37,7 +37,7 @@ kind: EC2NodeClass
 metadata:
   name: skm-app-nodeclass
 spec:
-  role: skm-eks-cluster-node-role
+  role: ${node_role_name}
   amiSelectorTerms:
   - alias: al2023@latest
   subnetSelectorTerms:

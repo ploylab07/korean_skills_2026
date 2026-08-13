@@ -1,0 +1,193 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: o11y-grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://o11y-loki.monitoring.svc.cluster.local:3100
+      isDefault: true
+      jsonData:
+        maxLines: 1000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: o11y-grafana-dashboard-provider
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: default
+      orgId: 1
+      folder: ""
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 30
+      options:
+        path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: o11y-grafana-dashboard
+  namespace: monitoring
+data:
+  log-overview.json: |
+    {
+      "title": "Log Overview",
+      "uid": "log-overview",
+      "timezone": "Asia/Seoul",
+      "refresh": "10s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Log Count Over Time",
+          "type": "barchart",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "sum(count_over_time({k8s_namespace_name=\"o11y\"} | json | level=\"ERROR\" [$__interval]))",
+              "legendFormat": "error",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "sum(count_over_time({k8s_namespace_name=\"o11y\"} | json | level=\"WARN\" [$__interval]))",
+              "legendFormat": "warn",
+              "refId": "B"
+            },
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "sum(count_over_time({k8s_namespace_name=\"o11y\"} | json | level=\"INFO\" [$__interval]))",
+              "legendFormat": "info",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Log Level Distribution",
+          "type": "piechart",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "sum(count_over_time({k8s_namespace_name=\"o11y\"} | json | level=\"ERROR\" [$__range]))",
+              "legendFormat": "error",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "sum(count_over_time({k8s_namespace_name=\"o11y\"} | json | level=\"WARN\" [$__range]))",
+              "legendFormat": "warn",
+              "refId": "B"
+            },
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "sum(count_over_time({k8s_namespace_name=\"o11y\"} | json | level=\"INFO\" [$__range]))",
+              "legendFormat": "info",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Recent Logs",
+          "type": "logs",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 9 },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "{k8s_namespace_name=\"o11y\"} | json",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: o11y-grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: o11y-grafana
+  template:
+    metadata:
+      labels:
+        app: o11y-grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.0
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "${admin_user}"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "${admin_password}"
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+      volumes:
+        - name: datasources
+          configMap:
+            name: o11y-grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: o11y-grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: o11y-grafana-dashboard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: o11y-grafana
+  namespace: monitoring
+spec:
+  selector:
+    app: o11y-grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: o11y-grafana-tgb
+  namespace: monitoring
+spec:
+  targetGroupARN: ${grafana_tg_arn}
+  targetType: ip
+  serviceRef:
+    name: o11y-grafana
+    port: 3000

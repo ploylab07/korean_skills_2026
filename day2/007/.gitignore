@@ -1,0 +1,10 @@
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+.generated/
+crash.log
+override.tf
+*_override.tf
+*.zip
+kubeconfig*

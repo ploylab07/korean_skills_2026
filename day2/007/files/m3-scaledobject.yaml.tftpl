@@ -39,7 +39,7 @@ spec:
     authenticationRef:
       name: aws-sqs-auth
     metadata:
-      queueURL: "https://sqs.ap-northeast-2.amazonaws.com/305291767588/skm-order-queue"
+      queueURL: "${queue_url}"
       queueLength: "5"
       awsRegion: ap-northeast-2
       identityOwner: operator
