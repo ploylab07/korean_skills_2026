@@ -1,31 +1,31 @@
-# OS
-.DS_Store
-Thumbs.db
+!*.tfvars.example
 # Editor
-.vscode/
-.idea/
-*.swp
-# Logs
-*.log
 # Env
-.env
-.env.local
+# Logs
 # Node
-node_modules/
+# OS
 # Python
-__pycache__/
-*.pyc
-.venv/
-venv/
 # Terraform
-.terraform/
+**/.build/
+*.log
+*.pyc
+*.swp
+*.tfplan
 *.tfstate
 *.tfstate.*
 *.tfvars
-!*.tfvars.example
-crash.log
-tfplan
-*.tfplan
-**/.build/
+.DS_Store
+.env
+.env.local
+.idea/
+.terraform/
+.venv/
+.vscode/
+Thumbs.db
+__pycache__/
 build/.bin/
 build/smoke/.verify.lock
+crash.log
+node_modules/
+tfplan
+venv/
