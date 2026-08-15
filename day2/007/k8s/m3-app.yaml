@@ -48,7 +48,7 @@ spec:
         - name: SQS_QUEUE_URL
           value: "https://sqs.ap-northeast-2.amazonaws.com/163389715563/skm-order-queue"
         - name: PROCESSING_TIME
-          value: "10"
+          value: "3"
         readinessProbe:
           httpGet:
             path: /healthz

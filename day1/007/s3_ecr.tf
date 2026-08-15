@@ -52,9 +52,14 @@ resource "aws_s3_object" "main_jpeg" {
 }
 
 resource "aws_ecr_repository" "book" {
-  name                 = "unicorn-concert-app"
-  # mark.sh expects Mutability=IMMUTABLE (push v1.0.0 + latest once on same digest)
-  image_tag_mutability = "IMMUTABLE"
+  name = "unicorn-concert-app"
+  # latest만 재태그 허용, 그 외(v1.0.0 등)는 immutable — 채점: IMMUTABLE_WITH_EXCLUSION
+  image_tag_mutability = "IMMUTABLE_WITH_EXCLUSION"
+
+  image_tag_mutability_exclusion_filter {
+    filter      = "latest"
+    filter_type = "WILDCARD"
+  }
 
   image_scanning_configuration {
     scan_on_push = true

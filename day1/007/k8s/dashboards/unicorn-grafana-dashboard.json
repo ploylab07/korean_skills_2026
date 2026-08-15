@@ -12,49 +12,64 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "EKS Node CPU/Memory",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus" },
+      "title": "EKS Node CPU Usage (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "datasource": { "type": "prometheus" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-          "legendFormat": "{{instance}} CPU %",
+          "legendFormat": "{{instance}}",
           "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus" },
-          "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
-          "legendFormat": "{{instance}} Memory %",
-          "refId": "B"
         }
       ],
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
     },
     {
       "id": 2,
+      "type": "timeseries",
+      "title": "EKS Node Memory Usage (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
+    },
+    {
+      "id": 3,
       "type": "stat",
       "title": "unicorn Namespace Pod Status",
       "gridPos": { "h": 4, "w": 12, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "datasource": { "type": "prometheus" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum(kube_pod_status_phase{namespace=\"unicorn\", phase=\"Running\"})",
           "legendFormat": "Running",
           "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "timeseries",
       "title": "unicorn Namespace Pod Status",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": { "type": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "datasource": { "type": "prometheus" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum by (phase) (kube_pod_status_phase{namespace=\"unicorn\"})",
           "legendFormat": "{{phase}}",
           "refId": "A"
@@ -62,14 +77,14 @@
       ]
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "stat",
       "title": "Book App Ready Pods",
       "gridPos": { "h": 4, "w": 12, "x": 0, "y": 12 },
-      "datasource": { "type": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "datasource": { "type": "prometheus" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum(kube_deployment_status_replicas_ready{namespace=\"unicorn\", deployment=\"unicorn-book-app-deploy\"})",
           "legendFormat": "Ready Pods",
           "refId": "A"
@@ -77,14 +92,14 @@
       ]
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "timeseries",
       "title": "Book App HTTP Request Duration",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
-      "datasource": { "type": "cloudwatch" },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
       "targets": [
         {
-          "datasource": { "type": "cloudwatch" },
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
           "namespace": "AWS/ApplicationELB",
           "metricName": "TargetResponseTime",
           "statistic": "Average",

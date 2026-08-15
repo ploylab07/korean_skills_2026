@@ -7,7 +7,7 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = [aws_subnet.app_a.id, aws_subnet.app_b.id, aws_subnet.hub_a.id, aws_subnet.hub_b.id]
     endpoint_private_access = true
     # mark 4-1 expects False True. Bootstrap may open public temporarily; deploy.sh closes it.
-    endpoint_public_access  = false
+    endpoint_public_access = false
   }
 
   enabled_cluster_log_types = [
@@ -88,12 +88,53 @@ resource "aws_eks_addon" "pod_identity" {
   depends_on   = [aws_eks_node_group.addon, aws_eks_node_group.workload]
 }
 
+resource "aws_launch_template" "addon" {
+  name_prefix = "wsc2026-addon-"
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "wsc2026-addon-node"
+    }
+  }
+
+  tag_specifications {
+    resource_type = "volume"
+    tags = {
+      Name = "wsc2026-addon-node"
+    }
+  }
+}
+
+resource "aws_launch_template" "workload" {
+  name_prefix = "wsc2026-workload-"
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "wsc2026-workload-node"
+    }
+  }
+
+  tag_specifications {
+    resource_type = "volume"
+    tags = {
+      Name = "wsc2026-workload-node"
+    }
+  }
+}
+
 resource "aws_eks_node_group" "addon" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "wsc2026-addon-nodegroup"
   node_role_arn   = aws_iam_role.eks_addon_node.arn
   subnet_ids      = [aws_subnet.app_a.id, aws_subnet.app_b.id]
   instance_types  = ["t3.medium"]
+
+  launch_template {
+    id      = aws_launch_template.addon.id
+    version = aws_launch_template.addon.latest_version
+  }
 
   scaling_config {
     desired_size = 2
@@ -122,6 +163,11 @@ resource "aws_eks_node_group" "workload" {
   node_role_arn   = aws_iam_role.eks_workload_node.arn
   subnet_ids      = [aws_subnet.app_a.id, aws_subnet.app_b.id]
   instance_types  = ["t3.medium"]
+
+  launch_template {
+    id      = aws_launch_template.workload.id
+    version = aws_launch_template.workload.latest_version
+  }
 
   scaling_config {
     desired_size = 2

@@ -20,7 +20,7 @@ resource "aws_lambda_function" "reservation" {
 
   environment {
     variables = {
-      TABLE_NAME = aws_dynamodb_table.books.name
+      TABLE_NAME          = aws_dynamodb_table.books.name
       AWS_REGION_OVERRIDE = local.region
     }
   }

@@ -17,6 +17,11 @@ echo "== ECR login & pull-through =="
 aws ecr get-login-password | docker login --username AWS --password-stdin "$ECR"
 aws ecr create-pull-through-cache-rule --ecr-repository-prefix ecr-public --upstream-registry-url public.ecr.aws 2>/dev/null || true
 
+echo "== build/push hostname-bootstrap =="
+docker build -t hostname-bootstrap:latest bootstrap/
+docker tag hostname-bootstrap:latest "${ECR}/hostname-bootstrap:latest"
+docker push "${ECR}/hostname-bootstrap:latest"
+
 echo "== build/push book (latest only first) =="
 chmod +x book-linux-amd64_v1.0.1 build-push-image.sh
 docker build -t book:latest .
@@ -59,9 +64,47 @@ kubectl set env ds/aws-node -n kube-system ENABLE_NETWORK_POLICY=true 2>/dev/nul
 echo "== apply k8s =="
 sed "s|IMAGE_PLACEHOLDER|${BOOK_IMAGE}|g" k8s/book.yaml | kubectl apply -f -
 # fluent-bit with account ECR
-sed "s|163389715563.dkr.ecr.ap-northeast-2.amazonaws.com|${ECR}|g" k8s/fluentbit.yaml | kubectl apply -f -
+sed "s|IMAGE_ECR|${ECR}|g" k8s/fluentbit.yaml | kubectl apply -f -
+
+# WSI Dashboard + CloudWatch datasource provisioning
+kubectl -n monitoring create configmap wsi-dashboard \
+  --from-file=wsi-dashboard.json=k8s/dashboards/wsi-dashboard.json \
+  -o yaml --dry-run=client | kubectl apply -f -
 
 kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: CloudWatch
+        type: cloudwatch
+        access: proxy
+        uid: cloudwatch
+        jsonData:
+          authType: default
+          defaultRegion: ap-northeast-2
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: wsi
+        orgId: 1
+        folder: ""
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -93,11 +136,30 @@ spec:
               value: "%(protocol)s://%(domain)s/grafana"
             - name: GF_SERVER_SERVE_FROM_SUB_PATH
               value: "true"
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
             initialDelaySeconds: 10
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: dashboards
+          configMap:
+            name: wsi-dashboard
 ---
 apiVersion: v1
 kind: Service
@@ -116,7 +178,7 @@ kubectl -n skills rollout status deploy/book --timeout=300s
 kubectl -n monitoring rollout status deploy/grafana --timeout=300s || true
 
 echo "== register ALB targets =="
-TG=$(aws elbv2 describe-target-groups --names gj2026-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
+TG=$(aws elbv2 describe-target-groups --names gj2026-book-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
 GTG=$(aws elbv2 describe-target-groups --names gj2026-grafana-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
 for ip in $(kubectl -n skills get pods -l app=book -o jsonpath='{.items[*].status.podIP}'); do
   aws elbv2 register-targets --target-group-arn "$TG" --targets Id="$ip",Port=8080
@@ -151,7 +213,7 @@ ALB_IPS=$(aws ec2 describe-network-interfaces --filters Name=description,Values=
 } | kubectl apply -f -
 
 echo "== update mark.sh DistributionID =="
-CF_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='gj2026-svc-cf'].Id | [0]" --output text)
+CF_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='gj2026-cdn'].Id | [0]" --output text)
 if [ -z "$CF_ID" ] || [ "$CF_ID" = "None" ]; then
   CF_ID=$(aws cloudfront list-distributions --query 'DistributionList.Items[0].Id' --output text)
 fi

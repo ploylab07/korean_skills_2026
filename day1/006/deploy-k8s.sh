@@ -27,7 +27,7 @@ kubectl -n skills rollout status deploy/book --timeout=300s || true
 kubectl -n skills get pods -o wide
 
 # Register book pods to ALB target group (IP mode) if not using controller
-TG_ARN=$(aws elbv2 describe-target-groups --names gj2026-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
+TG_ARN=$(aws elbv2 describe-target-groups --names gj2026-book-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
 for ip in $(kubectl -n skills get pods -l app=book -o jsonpath='{.items[*].status.podIP}'); do
   aws elbv2 register-targets --target-group-arn "$TG_ARN" --targets Id="$ip",Port=8080 || true
 done

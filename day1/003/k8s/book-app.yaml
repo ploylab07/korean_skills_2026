@@ -43,6 +43,10 @@ spec:
     metadata:
       labels:
         app: wsc2026-book
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: wsc2026-book-sa
       nodeSelector:

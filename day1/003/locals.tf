@@ -3,10 +3,12 @@ locals {
     Project = "wsc2026"
   }
 
-  azs = slice(data.aws_availability_zones.available.names, 0, 2)
+  azs        = slice(data.aws_availability_zones.available.names, 0, 2)
+  account_id = data.aws_caller_identity.current.account_id
 
   cluster_name = "wsc2026-eks-cluster"
-  bucket_name  = "wsc2026-static-skil-003-bucket"
+  # wsc2026-static-<4영문>-<비번호>-bucket
+  bucket_name = "wsc2026-static-skil-003-bucket"
 
   grafana_admin_password = "Skills$#$@!"
 

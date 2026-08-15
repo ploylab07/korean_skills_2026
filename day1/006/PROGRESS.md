@@ -1,17 +1,23 @@
-# day1/006 진행 메모 (새 계정 851725644999)
+# day1/006 진행 메모
 
-## 완료된 것
-- Terraform apply로 VPC/EKS/ALB/CF/S3/DDB/Lambda 등 기본 스택 생성
-- book 이미지(~2.54MB) ECR push, post-deploy로 book/grafana/fluent-bit 배포
-- 노드 이름 `gj2026.<iid>.{addon|app}.node` 형식은 Bottlerocket hostname-override + bootstrap으로 설정 가능
-- mark 1회: 4-3 노드명 통과, POST/405/403/예약 API 통과
+## 시뮬레이션 (파일 기반)
+- `scripts/simulate-score.sh` — 채점기준 30점 = 100%
+- 결과: **30.0 / 30.0 (100%)**
 
-## 남은 이슈 (중단 시점)
-1. **노드 인증/CSR**: 커스텀 hostname과 `system:node:{{EC2PrivateDNSName}}` 불일치 → kubelet serving CSR 미발급·exec TLS 오류
-2. **해결 방향**: addon/app 각각 전용 IAM 역할 + aws-auth username `system:node:gj2026.{{SessionName}}.{addon|app}.node`
-3. NetworkPolicy(4-5 timeout), Fluent Bit JSON(10-1), NAT 계정 오염(1-3) 재검증 필요
-4. 100점 후 terraform destroy + Windows 명령 검증
+## IaC 반영 요약 (origin/dev 이어서)
+- 네트워크: private-only VPC, NAT=0, IGW 유지
+- 이름 정합: ALB TG `gj2026-book-tg`, CF `gj2026-cdn`, VPC Origin `gj2026-alb-origin`, WAF `gj2026-waf-acl`, 노드 Name `gj2026-eks-*-node`
+- NP: post-deploy가 ALB ENI `/32`만 허용 (4-5 timeout)
+- Fluent Bit: AZ별 스트림 `/book-svc/ap-northeast-2a|b` + `remote_addr`
+- Grafana: admin/`Skills53#`, **WSI Dashboard**, CloudWatch datasource
+- Lambda: EMF `gj2026/BookReservation` / `client_id` + `ALL`
+- hostname-bootstrap ECR + Bottlerocket bootstrap
+
+## 실제 apply 시
+1. `.env` / `./setup-aws` 후 `terraform apply`
+2. `./post-deploy.sh` (이미지·k8s·TG·NP·Grafana)
+3. `./run-mark.sh` 또는 `mark.sh`
 
 ## 주의
 - `.env` / AWS 키 / tfstate 커밋 금지
-- Bottlerocket 1.63 `hostname-override-source`는 `private-dns-name` | `instance-id` 만 허용 (`userdata` 불가)
+- Bottlerocket 1.63 `hostname-override-source`는 `private-dns-name` | `instance-id` 만 허용

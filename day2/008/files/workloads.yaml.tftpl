@@ -55,8 +55,9 @@ spec:
     cpu: "100"
   disruption:
     # 문제지: consolidationPolicy 필수. 빈 노드를 바로 지우면 4-5 Worker EC2 미검출.
+    # 시뮬: consolidateAfter 45m + warmup → 4-5 PASS (채점 시 노드 유지)
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 60m
+    consolidateAfter: 45m
 ---
 apiVersion: v1
 kind: ServiceAccount

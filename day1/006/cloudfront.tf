@@ -8,7 +8,7 @@ resource "aws_cloudfront_origin_access_control" "s3" {
 
 resource "aws_cloudfront_vpc_origin" "alb" {
   vpc_origin_endpoint_config {
-    name                   = "gj2026-vpc-origin"
+    name                   = "gj2026-alb-origin"
     arn                    = aws_lb.main.arn
     http_port              = 80
     https_port             = 443
@@ -29,7 +29,7 @@ resource "aws_cloudfront_vpc_origin" "alb" {
 
 resource "aws_wafv2_web_acl" "cf" {
   provider = aws.us_east_1
-  name     = "gj2026-waf"
+  name     = "gj2026-waf-acl"
   scope    = "CLOUDFRONT"
 
   default_action {
@@ -132,7 +132,7 @@ resource "aws_wafv2_web_acl" "cf" {
 
 resource "aws_cloudfront_distribution" "main" {
   enabled             = true
-  comment             = "gj2026-svc-cf"
+  comment             = "gj2026-cdn"
   default_root_object = "index.html"
   web_acl_id          = aws_wafv2_web_acl.cf.arn
   price_class         = "PriceClass_200"
@@ -262,7 +262,7 @@ resource "aws_cloudfront_distribution" "main" {
     cloudfront_default_certificate = true
   }
 
-  tags = merge(local.common_tags, { Name = "gj2026-svc-cf" })
+  tags = merge(local.common_tags, { Name = "gj2026-cdn" })
 }
 
 resource "aws_s3_bucket_policy" "web" {

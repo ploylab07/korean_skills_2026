@@ -26,11 +26,11 @@ resource "aws_security_group" "bastion" {
 }
 
 resource "aws_instance" "bastion" {
-  ami                    = data.aws_ami.al2023.id
-  instance_type          = "t3.small"
-  subnet_id              = aws_subnet.hub_a.id
-  vpc_security_group_ids = [aws_security_group.bastion.id, aws_security_group.mark.id]
-  iam_instance_profile   = aws_iam_instance_profile.bastion.name
+  ami                         = data.aws_ami.al2023.id
+  instance_type               = "t3.small"
+  subnet_id                   = aws_subnet.hub_a.id
+  vpc_security_group_ids      = [aws_security_group.bastion.id, aws_security_group.mark.id]
+  iam_instance_profile        = aws_iam_instance_profile.bastion.name
   associate_public_ip_address = true
 
   user_data = <<-EOF

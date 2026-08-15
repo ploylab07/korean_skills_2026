@@ -1,0 +1,15 @@
+---
+description: build/smoke terraform plan state lock 재시도
+
+alwaysApply: true
+---
+
+# verify smoke lock
+
+## verify smoke state lock
+
+여러 에이전트가 동시에 `./build/verify.sh`를 실행하면 `build/smoke` local state lock / 프로세스 kill로 실패할 수 있다.
+
+- smoke 검증은 disposable state이므로 `terraform plan/init -lock=false`를 사용한다.
+- `Error acquiring the state lock`가 나면 stale `.terraform.tfstate.lock.info`를 지우고 재시도한다.
+- 다른 에이전트의 verify 프로세스를 `kill -9`로 죽이지 않는다.

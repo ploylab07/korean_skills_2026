@@ -82,7 +82,7 @@ spec:
       targetPort: 8080
       name: http
 ---
-# Deny ingress to book from unlabeled pods (nginx-test). ALB→pod is node/ENI path.
+# Placeholder NP — post-deploy replaces with ALB ENI /32 allow-list
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -94,10 +94,4 @@ spec:
       app: book
   policyTypes:
     - Ingress
-  ingress:
-    - from:
-        - ipBlock:
-            cidr: 10.0.0.0/16
-      ports:
-        - protocol: TCP
-          port: 8080
+  ingress: []

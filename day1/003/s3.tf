@@ -75,8 +75,8 @@ data "aws_iam_policy_document" "static_oac" {
       variable = "AWS:SourceArn"
       values = length(aws_cloudfront_distribution.cdn) > 0 ? [
         aws_cloudfront_distribution.cdn[0].arn
-      ] : [
-        "arn:aws:cloudfront::${var.account_id}:distribution/*"
+        ] : [
+        "arn:aws:cloudfront::${local.account_id}:distribution/*"
       ]
     }
   }

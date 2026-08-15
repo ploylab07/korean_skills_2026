@@ -82,6 +82,58 @@ resource "aws_iam_role_policy_attachment" "workload_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Fluent Bit (all nodes) + Grafana CloudWatch Logs need CW permissions on node roles
+resource "aws_iam_role_policy" "addon_observability" {
+  name = "wsc2026-addon-observability"
+  role = aws_iam_role.eks_addon_node.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+        "logs:DescribeLogGroups",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:StopQuery",
+        "logs:GetQueryResults",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "ec2:DescribeTags",
+        "ec2:DescribeInstances",
+        "ec2:DescribeRegions",
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "workload_observability" {
+  name = "wsc2026-workload-observability"
+  role = aws_iam_role.eks_workload_node.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+        "logs:DescribeLogGroups",
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
 resource "aws_iam_role" "book_pod" {
   name = "wsc2026-book-pod-role"
 
@@ -176,8 +228,8 @@ resource "aws_iam_role_policy" "alb_controller" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = [
+      Effect = "Allow"
+      Action = [
         "ec2:DescribeAccountAttributes",
         "ec2:DescribeAddresses",
         "ec2:DescribeAvailabilityZones",

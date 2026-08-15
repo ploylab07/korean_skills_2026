@@ -1,0 +1,49 @@
+{
+  "title": "WSI Dashboard",
+  "uid": "wsi-dashboard",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "tags": ["gj2026", "wsi"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Lambda client_id invocations",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "gj2026/BookReservation",
+          "metricName": "InvocationCount",
+          "dimensions": { "client_id": "*" },
+          "statistic": "Sum",
+          "period": "60",
+          "region": "ap-northeast-2",
+          "label": "{{client_id}}"
+        },
+        {
+          "refId": "B",
+          "namespace": "gj2026/BookReservation",
+          "metricName": "InvocationCount",
+          "dimensions": { "client_id": "ALL" },
+          "statistic": "Sum",
+          "period": "60",
+          "region": "ap-northeast-2",
+          "label": "ALL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

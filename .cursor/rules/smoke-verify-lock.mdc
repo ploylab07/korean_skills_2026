@@ -1,0 +1,18 @@
+---
+description: build/smoke terraform plan concurrent state lock
+
+alwaysApply: true
+---
+
+# smoke verify lock
+
+# smoke verify state lock
+
+`./build/verify.sh` / `.\verify.cmd` 의 `build/smoke` plan 은 동시 실행 시 local state lock (`resource temporarily unavailable`) 이 날 수 있다.
+
+## 대응
+
+- Linux `build/verify.sh`: `flock` 으로 smoke 구간 직렬화 + `plan -lock=false`
+- Windows `build/verify.ps1`: `plan -lock=false` (smoke 는 disposable local state)
+
+검증 실패 시 stale `build/smoke/.terraform.tfstate.lock.info` 를 지우고, 다른 terraform/smoke 프로세스가 없는지 확인한 뒤 재실행한다.

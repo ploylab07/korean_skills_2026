@@ -200,27 +200,40 @@ resource "aws_sfn_state_machine" "student_score" {
   role_arn     = aws_iam_role.stepfunction_student.arn
   depends_on   = [aws_iam_role_policy.stepfunction_student]
   definition = jsonencode({
+    Comment = "Student score workflow"
     StartAt = "CheckS3File"
     States = {
       CheckS3File = {
         Type     = "Task"
         Resource = "arn:aws:states:::aws-sdk:s3:headObject"
         Parameters = {
-          Bucket = aws_s3_bucket.score.bucket
+          Bucket  = aws_s3_bucket.score.bucket
           "Key.$" = "$.key"
         }
         ResultPath = "$.head"
         Next       = "ProcessStudentData"
+        Catch = [{
+          ErrorEquals = ["States.ALL"]
+          Next        = "FailState"
+        }]
       }
       ProcessStudentData = {
         Type     = "Task"
         Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
           FunctionName = aws_lambda_function.student_score.arn
-          "Payload.$"  = "$"
+          Payload = {
+            "key.$" = "$.key"
+          }
         }
         ResultPath = "$.lambdaResult"
-        Next       = "CheckResult"
+        Retry = [{
+          ErrorEquals     = ["States.ALL"]
+          IntervalSeconds = 2
+          MaxAttempts     = 3
+          BackoffRate     = 2.0
+        }]
+        Next = "CheckResult"
       }
       CheckResult = {
         Type = "Choice"
@@ -239,18 +252,17 @@ resource "aws_sfn_state_machine" "student_score" {
           "CopySource.$" = "States.Format('${aws_s3_bucket.score.bucket}/{}', $.key)"
           "Key.$"        = "States.Format('processed/{}', States.ArrayGetItem(States.StringSplit($.key, '/'), 1))"
         }
-        ResultPath = "$.copyResult"
-        Next       = "DeleteProcessedSource"
+        ResultPath = null
+        Next       = "DeleteInputProcessed"
       }
-      DeleteProcessedSource = {
+      DeleteInputProcessed = {
         Type     = "Task"
         Resource = "arn:aws:states:::aws-sdk:s3:deleteObject"
         Parameters = {
-          Bucket = aws_s3_bucket.score.bucket
+          Bucket  = aws_s3_bucket.score.bucket
           "Key.$" = "$.key"
         }
-        ResultPath = "$.deleteResult"
-        End        = true
+        End = true
       }
       MoveToError = {
         Type     = "Task"
@@ -260,22 +272,22 @@ resource "aws_sfn_state_machine" "student_score" {
           "CopySource.$" = "States.Format('${aws_s3_bucket.score.bucket}/{}', $.key)"
           "Key.$"        = "States.Format('error/{}', States.ArrayGetItem(States.StringSplit($.key, '/'), 1))"
         }
-        ResultPath = "$.copyResult"
-        Next       = "DeleteErrorSource"
+        ResultPath = null
+        Next       = "DeleteInputError"
       }
-      DeleteErrorSource = {
+      DeleteInputError = {
         Type     = "Task"
         Resource = "arn:aws:states:::aws-sdk:s3:deleteObject"
         Parameters = {
-          Bucket = aws_s3_bucket.score.bucket
+          Bucket  = aws_s3_bucket.score.bucket
           "Key.$" = "$.key"
         }
-        ResultPath = "$.deleteResult"
-        Next       = "Fail"
+        Next = "FailState"
       }
-      Fail = {
+      FailState = {
         Type  = "Fail"
-        Error = "StudentScoreProcessingFailed"
+        Error = "WorkflowError"
+        Cause = "Student score workflow failed"
       }
     }
   })

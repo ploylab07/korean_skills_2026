@@ -408,8 +408,8 @@ resource "aws_msk_cluster_policy" "lambda" {
       ]
       Resource = [
         aws_msk_cluster.this.arn,
-        "arn:aws:kafka:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:topic/${aws_msk_cluster.this.cluster_name}/${element(split("/", aws_msk_cluster.this.arn), 2)}/*",
-        "arn:aws:kafka:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:group/${aws_msk_cluster.this.cluster_name}/${element(split("/", aws_msk_cluster.this.arn), 2)}/*",
+        "arn:aws:kafka:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:topic/${aws_msk_cluster.this.cluster_name}/${element(split("/", aws_msk_cluster.this.arn), 2)}/*",
+        "arn:aws:kafka:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:group/${aws_msk_cluster.this.cluster_name}/${element(split("/", aws_msk_cluster.this.arn), 2)}/*",
       ]
     }]
   })
@@ -428,7 +428,7 @@ resource "terraform_data" "sensor_consumer_package" {
       rm -rf "$package_dir"
       mkdir -p "$package_dir"
       cp "${path.module}/lambda/sensor-consumer/index.py" "$package_dir/index.py"
-      python3 -m pip install --disable-pip-version-check --target "$package_dir" -r "${path.module}/lambda/sensor-consumer/requirements.txt"
+      python3 -m pip install --disable-pip-version-check --break-system-packages --target "$package_dir" -r "${path.module}/lambda/sensor-consumer/requirements.txt"
     EOT
   }
 }
@@ -522,7 +522,7 @@ resource "aws_instance" "sensor_producer" {
   user_data_replace_on_change = true
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     bucket    = aws_s3_bucket.alerts.bucket
-    region    = data.aws_region.current.name
+    region    = data.aws_region.current.region
     bootstrap = aws_msk_cluster.this.bootstrap_brokers
   })
   depends_on = [aws_s3_object.producer_binary, aws_msk_cluster.this]

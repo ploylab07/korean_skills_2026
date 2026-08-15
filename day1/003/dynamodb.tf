@@ -1,9 +1,9 @@
 resource "aws_dynamodb_table" "book" {
-  name             = "wsc2026-book-table"
-  billing_mode     = "PAY_PER_REQUEST"
-  hash_key         = "client_id"
-  stream_enabled   = false
-  table_class      = "STANDARD"
+  name           = "wsc2026-book-table"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "client_id"
+  stream_enabled = false
+  table_class    = "STANDARD"
 
   deletion_protection_enabled = true
 
@@ -56,7 +56,7 @@ resource "aws_dynamodb_resource_policy" "book" {
         Effect    = "Allow"
         Principal = { AWS = aws_iam_role.book_function.arn }
         Action    = "dynamodb:Query"
-        Resource  = [
+        Resource = [
           aws_dynamodb_table.book.arn,
           "${aws_dynamodb_table.book.arn}/index/*",
         ]
@@ -96,11 +96,11 @@ resource "aws_iam_policy" "book_function" {
           "logs:CreateLogStream",
           "logs:PutLogEvents",
         ]
-        Resource = "arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/lambda/wsc2026-book-get-function:*"
+        Resource = "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws/lambda/wsc2026-book-get-function:*"
       },
       {
-        Effect   = "Allow"
-        Action   = "dynamodb:Query"
+        Effect = "Allow"
+        Action = "dynamodb:Query"
         Resource = [
           aws_dynamodb_table.book.arn,
           "${aws_dynamodb_table.book.arn}/index/*",

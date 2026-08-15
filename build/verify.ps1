@@ -116,21 +116,34 @@ catch {
 if (Test-Path $envFile) {
     . (Join-Path $PSScriptRoot "load-env.ps1")
     Import-RepoEnv -BuildDir $PSScriptRoot
-    try {
-        $planOut = Invoke-Terraform @("-chdir=$SmokeDir", "plan", "-input=false") 2>&1 | Out-String
-        if ($planOut -match "account_id|Plan:|No changes") {
-            Write-Pass "terraform plan (build/smoke)"
+    $planOut = ""
+    $lockInfo = Join-Path $SmokeDir ".terraform.tfstate.lock.info"
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        if ((Test-Path $lockInfo) -and -not (Get-Process -Name "terraform*" -ErrorAction SilentlyContinue)) {
+            Remove-Item -Force $lockInfo -ErrorAction SilentlyContinue
         }
-        elseif ($planOut -match "InvalidClientTokenId|SignatureDoesNotMatch|UnrecognizedClientException|security token") {
-            Write-Skip "terraform plan — AWS key invalid (wrapper/env OK)"
+        try {
+            $planOut = Invoke-Terraform @("-chdir=$SmokeDir", "plan", "-input=false", "-lock=false") 2>&1 | Out-String
         }
-        else {
-            Write-Fail "terraform plan (build/smoke)"
-            ($planOut -split "`n" | Select-Object -Last 20) -join "`n" | Write-Host
+        catch {
+            $planOut = "$_"
         }
+        if ($planOut -match "account_id|Plan:|No changes") { break }
+        if ($planOut -match "Error acquiring the state lock|resource temporarily unavailable") {
+            Start-Sleep -Seconds ($attempt * 3)
+            continue
+        }
+        break
     }
-    catch {
+    if ($planOut -match "account_id|Plan:|No changes") {
+        Write-Pass "terraform plan (build/smoke)"
+    }
+    elseif ($planOut -match "InvalidClientTokenId|SignatureDoesNotMatch|UnrecognizedClientException|security token") {
+        Write-Skip "terraform plan — AWS key invalid (wrapper/env OK)"
+    }
+    else {
         Write-Fail "terraform plan (build/smoke)"
+        ($planOut -split "`n" | Select-Object -Last 20) -join "`n" | Write-Host
     }
 }
 else {

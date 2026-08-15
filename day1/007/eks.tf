@@ -43,6 +43,8 @@ resource "aws_launch_template" "app" {
   }
 
   user_data = base64encode(<<-EOT
+    [settings]
+    timezone = "Asia/Seoul"
     [settings.kubernetes.node-labels]
     "unicorn" = "app"
   EOT
@@ -92,6 +94,8 @@ resource "aws_launch_template" "addon" {
   }
 
   user_data = base64encode(<<-EOT
+    [settings]
+    timezone = "Asia/Seoul"
     [settings.kubernetes.node-labels]
     "unicorn" = "addon"
   EOT
@@ -249,9 +253,9 @@ resource "aws_eks_addon" "coredns" {
 resource "aws_eks_pod_identity_association" "book_app" {
   cluster_name    = aws_eks_cluster.main.name
   namespace       = "unicorn"
-  service_account = "book"
+  service_account = "unicorn-book-app-sa"
   role_arn        = aws_iam_role.book_app.arn
-  depends_on      = [aws_eks_addon.pod_identity]
+  depends_on      = [aws_eks_addon.pod_identity, kubernetes_service_account_v1.book]
 }
 
 # ALB (book + grafana) -> managed node groups' shared cluster security group

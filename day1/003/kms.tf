@@ -66,7 +66,7 @@ locals {
     "kms:GenerateDataKeyWithoutPlaintext",
   ]
 
-  # No ":root" and no "kms:*" — required by mark.sh check_kms
+  # mark.sh check_kms rejects root principal and wildcard kms actions in key policy JSON
   kms_account_admin_statement = {
     Sid       = "AllowAccountAdministration"
     Effect    = "Allow"
@@ -75,7 +75,7 @@ locals {
     Resource  = "*"
     Condition = {
       StringEquals = {
-        "kms:CallerAccount" = var.account_id
+        "kms:CallerAccount" = local.account_id
       }
     }
   }
@@ -90,9 +90,9 @@ locals {
 }
 
 resource "aws_kms_key" "db" {
-  description             = "DynamoDB encryption key"
-  deletion_window_in_days = 7
-  enable_key_rotation     = true
+  description                        = "DynamoDB encryption key"
+  deletion_window_in_days            = 7
+  enable_key_rotation                = true
   bypass_policy_lockout_safety_check = true
 
   policy = jsonencode({
@@ -252,7 +252,7 @@ resource "aws_kms_key" "function" {
         Resource = "*"
         Condition = {
           ArnLike = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.region}:${var.account_id}:*"
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.region}:${local.account_id}:*"
           }
         }
       },

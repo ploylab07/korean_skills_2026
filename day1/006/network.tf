@@ -18,8 +18,8 @@ resource "aws_subnet" "private_a" {
   availability_zone = local.azs[0]
 
   tags = merge(local.common_tags, {
-    Name                              = "gj2026-private-subnet-a"
-    "kubernetes.io/role/internal-elb" = "1"
+    Name                                          = "gj2026-private-subnet-a"
+    "kubernetes.io/role/internal-elb"             = "1"
     "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   })
 }
@@ -30,8 +30,8 @@ resource "aws_subnet" "private_b" {
   availability_zone = local.azs[1]
 
   tags = merge(local.common_tags, {
-    Name                              = "gj2026-private-subnet-b"
-    "kubernetes.io/role/internal-elb" = "1"
+    Name                                          = "gj2026-private-subnet-b"
+    "kubernetes.io/role/internal-elb"             = "1"
     "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   })
 }

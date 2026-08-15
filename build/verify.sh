@@ -58,8 +58,12 @@ else
   skip ".env not found — run ./setup-aws first"
 fi
 
-# 4. Terraform init + validate (no AWS needed for validate after init)
-if "$TF" -chdir="$SMOKE_DIR" init -input=false >/dev/null 2>&1; then
+# 4. Terraform init + validate
+# build/smoke is harness-only local state → -lock=false avoids concurrent-agent lock fights
+mkdir -p "$SMOKE_DIR"
+rm -f "$SMOKE_DIR/.terraform.tfstate.lock.info"
+
+if "$TF" -chdir="$SMOKE_DIR" init -input=false -lock=false >/dev/null 2>&1; then
   pass "terraform init (build/smoke)"
 else
   fail "terraform init (build/smoke)"
@@ -75,7 +79,19 @@ fi
 if [[ -f "$ROOT/.env" ]]; then
   source "$ROOT/build/load-env.sh"
   load_repo_env "$ROOT/build"
-  PLAN_OUT="$("$TF" -chdir="$SMOKE_DIR" plan -input=false 2>&1)" || true
+  PLAN_OUT=""
+  for attempt in 1 2 3 4 5; do
+    rm -f "$SMOKE_DIR/.terraform.tfstate.lock.info"
+    PLAN_OUT="$("$TF" -chdir="$SMOKE_DIR" plan -input=false -lock=false 2>&1)" || true
+    if echo "$PLAN_OUT" | grep -qE "account_id|Plan:|No changes"; then
+      break
+    fi
+    if echo "$PLAN_OUT" | grep -qiE "Error acquiring the state lock|resource temporarily unavailable"; then
+      sleep $((attempt * 2))
+      continue
+    fi
+    break
+  done
   if echo "$PLAN_OUT" | grep -qE "account_id|Plan:|No changes"; then
     pass "terraform plan (build/smoke)"
   elif echo "$PLAN_OUT" | grep -qiE "InvalidClientTokenId|SignatureDoesNotMatch|UnrecognizedClientException|security token"; then

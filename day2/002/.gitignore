@@ -1,0 +1,12 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+terraform.tfvars
+crash.log
+crash.*.log
+modules/*/.build/
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

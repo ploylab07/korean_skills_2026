@@ -48,7 +48,7 @@ spec:
         - name: SQS_QUEUE_URL
           value: "${queue_url}"
         - name: PROCESSING_TIME
-          value: "10"
+          value: "3"
         readinessProbe:
           httpGet:
             path: /healthz

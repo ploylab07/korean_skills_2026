@@ -14,7 +14,7 @@ resource "kubernetes_namespace_v1" "monitoring" {
 
 resource "kubernetes_service_account_v1" "book" {
   metadata {
-    name      = "book"
+    name      = "unicorn-book-app-sa"
     namespace = kubernetes_namespace_v1.unicorn.metadata[0].name
   }
 }
@@ -45,7 +45,8 @@ resource "kubernetes_deployment_v1" "book" {
           unicorn = "app"
         }
 
-        termination_grace_period_seconds = 30
+        # mark.sh 6-3-A: graceful=45 preStop=exec sleep 15
+        termination_grace_period_seconds = 45
 
         container {
           name  = "book"
@@ -87,13 +88,10 @@ resource "kubernetes_deployment_v1" "book" {
             failure_threshold     = 3
           }
 
-          # distroless has no shell, so a graceful-shutdown preStop must use
-          # httpGet (exec is unavailable).
           lifecycle {
             pre_stop {
-              http_get {
-                path = "/health"
-                port = 8080
+              exec {
+                command = ["/bin/sh", "-c", "sleep 15"]
               }
             }
           }

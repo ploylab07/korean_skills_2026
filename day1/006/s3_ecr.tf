@@ -65,3 +65,14 @@ resource "aws_ecr_repository" "book" {
 
   tags = merge(local.common_tags, { Name = "book" })
 }
+
+resource "aws_ecr_repository" "hostname_bootstrap" {
+  name                 = "hostname-bootstrap"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = merge(local.common_tags, { Name = "hostname-bootstrap" })
+}

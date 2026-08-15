@@ -9,7 +9,7 @@ resource "aws_lb" "main" {
 }
 
 resource "aws_lb_target_group" "book" {
-  name        = "gj2026-tg"
+  name        = "gj2026-book-tg"
   port        = 8080
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
@@ -27,7 +27,7 @@ resource "aws_lb_target_group" "book" {
     matcher             = "200"
   }
 
-  tags = merge(local.common_tags, { Name = "gj2026-tg" })
+  tags = merge(local.common_tags, { Name = "gj2026-book-tg" })
 }
 
 resource "aws_lb_target_group" "grafana" {

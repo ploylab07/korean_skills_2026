@@ -415,23 +415,29 @@ resource "null_resource" "worker_image" {
   }
 
   provisioner "local-exec" {
-    command = <<-EOT
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
       set -euo pipefail
       REGION=us-west-2
-      REPO=${aws_ecr_repository.worker.repository_url}
-      ACCOUNT=${local.account_id}
+      REPO='${aws_ecr_repository.worker.repository_url}'
+      ACCOUNT='${local.account_id}'
       DIR=$(mktemp -d)
-      cp "${path.module}/모듈4_지급파일/worker.py" "$DIR/"
-      cat > "$DIR/Dockerfile" <<'DF'
-FROM public.ecr.aws/docker/library/python:3.12-slim
-WORKDIR /app
-RUN pip install --no-cache-dir boto3
-COPY worker.py .
-CMD ["python", "-u", "worker.py"]
-DF
-      aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT.dkr.ecr.$REGION.amazonaws.com
-      docker build -t $REPO:latest "$DIR"
-      docker push $REPO:latest
+      mkdir -p "$DIR/layer/app"
+      cp "${path.module}/모듈4_지급파일/worker.py" "$DIR/layer/app/"
+      python3 -m pip install --quiet --disable-pip-version-check --root-user-action=ignore --target "$DIR/layer/app" boto3
+      tar -cf "$DIR/layer.tar" -C "$DIR/layer" app
+      if ! command -v crane >/dev/null 2>&1; then
+        curl -fsSL -o /tmp/crane.tgz https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz
+        tar xzf /tmp/crane.tgz --no-same-owner -C /tmp crane
+        install -m 0755 /tmp/crane /usr/local/bin/crane
+      fi
+      aws ecr get-login-password --region "$REGION" | crane auth login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
+      crane mutate public.ecr.aws/docker/library/python:3.12-slim \
+        --append "$DIR/layer.tar" \
+        --entrypoint /usr/local/bin/python \
+        --cmd '-u,/app/worker.py' \
+        --env PYTHONPATH=/app \
+        -t "$REPO:latest"
     EOT
   }
 

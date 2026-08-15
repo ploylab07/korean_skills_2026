@@ -76,7 +76,7 @@ resource "aws_eip" "nat_b" {
 
 resource "aws_nat_gateway" "nat_a" {
   allocation_id = aws_eip.nat_a.id
-  subnet_id       = aws_subnet.hub_a.id
+  subnet_id     = aws_subnet.hub_a.id
 
   tags = {
     Name = "wsc2026-skills-nat-a"
@@ -87,7 +87,7 @@ resource "aws_nat_gateway" "nat_a" {
 
 resource "aws_nat_gateway" "nat_b" {
   allocation_id = aws_eip.nat_b.id
-  subnet_id       = aws_subnet.hub_b.id
+  subnet_id     = aws_subnet.hub_b.id
 
   tags = {
     Name = "wsc2026-skills-nat-b"
@@ -283,23 +283,33 @@ resource "aws_security_group_rule" "cluster_from_nodes" {
   source_security_group_id = aws_security_group.eks_nodes.id
 }
 
-# EKS managed node pods use the cluster SG; ALB health/traffic needs 8080 (and 80).
-resource "aws_security_group_rule" "cluster_from_alb_8080" {
+# EKS pods use the managed cluster SG — attach ALB rules there (not the unused custom SG).
+resource "aws_security_group_rule" "cluster_sg_from_alb_8080" {
   type                     = "ingress"
   from_port                = 8080
   to_port                  = 8080
   protocol                 = "tcp"
-  security_group_id        = aws_security_group.eks_cluster.id
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
   source_security_group_id = aws_security_group.alb.id
   description              = "ALB to pods on 8080"
 }
 
-resource "aws_security_group_rule" "cluster_from_alb_80" {
+resource "aws_security_group_rule" "cluster_sg_from_alb_80" {
   type                     = "ingress"
   from_port                = 80
   to_port                  = 80
   protocol                 = "tcp"
-  security_group_id        = aws_security_group.eks_cluster.id
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
   source_security_group_id = aws_security_group.alb.id
   description              = "ALB to pods on 80"
+}
+
+resource "aws_security_group_rule" "cluster_sg_from_bastion" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  source_security_group_id = aws_security_group.bastion.id
+  description              = "Bastion to EKS API"
 }

@@ -30,3 +30,4 @@ git switch dev
 - 평소 작업은 **dev** 브랜치에서만 한다.
 - **master에 직접 커밋·push하지 않는다.** dev 머지 후 push한다.
 - 사용자가 push를 요청했을 때만 push한다.
+ 

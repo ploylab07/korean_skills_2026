@@ -11,14 +11,14 @@ resource "aws_launch_template" "addon" {
   tag_specifications {
     resource_type = "instance"
     tags = merge(local.common_tags, {
-      Name      = "gj2026-addon-node"
+      Name      = "gj2026-eks-addon-node"
       NodeGroup = "addon"
     })
   }
 
   tag_specifications {
     resource_type = "volume"
-    tags          = merge(local.common_tags, { Name = "gj2026-addon-node" })
+    tags          = merge(local.common_tags, { Name = "gj2026-eks-addon-node" })
   }
 
   # BR 1.63+: hostname-override-source is only private-dns-name|instance-id
@@ -47,14 +47,14 @@ resource "aws_launch_template" "app" {
   tag_specifications {
     resource_type = "instance"
     tags = merge(local.common_tags, {
-      Name      = "gj2026-app-node"
+      Name      = "gj2026-eks-app-node"
       NodeGroup = "app"
     })
   }
 
   tag_specifications {
     resource_type = "volume"
-    tags          = merge(local.common_tags, { Name = "gj2026-app-node" })
+    tags          = merge(local.common_tags, { Name = "gj2026-eks-app-node" })
   }
 
   user_data = base64encode(<<-EOT
@@ -263,6 +263,6 @@ resource "kubernetes_config_map_v1_data" "aws_auth" {
       groups   = ["system:bootstrappers", "system:nodes", "system:masters"]
     }])
   }
-  force = true
+  force      = true
   depends_on = [aws_eks_cluster.main, aws_eks_node_group.addon]
 }
