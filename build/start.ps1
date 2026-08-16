@@ -190,6 +190,10 @@ function Invoke-Apply([string]$RelPath) {
     Write-Step "5/5 Deploy (apply) - $RelPath"
     $assignPath = Resolve-AssignmentPath $RelPath
 
+    # day1/002(+EKS) needs aws/kubectl/docker/bash on PATH for local-exec + k8s provider
+    . (Join-Path $BuildDir "ensure-contest-tools.ps1")
+    Ensure-ContestTools
+
     Write-Host "Will run: init -> validate -> plan -> apply" -ForegroundColor Yellow
     Write-Host "Providers: offline mirror under build\tf-mirror" -ForegroundColor Cyan
     $confirm = Read-Host "Continue? [Y/n]"

@@ -13,6 +13,11 @@ locals {
   origin_req_all_viewer  = "216adef6-5c7f-47e4-b989-5492eafa07d3"
 
   grafana_admin_user = "skills-${var.bibun}-admin"
+
+  # Windows home is like C:\Users\... (2nd char ':'); Linux is /home/...
+  # Use `bash` on PATH (Git for Windows). Avoid hard-coded /bin/bash.
+  local_exec_interpreter = substr(pathexpand("~"), 1, 1) == ":" ? ["bash", "-c"] : ["/bin/bash", "-c"]
+  module_posix           = replace(abspath(path.module), "\\", "/")
 }
 
 data "aws_caller_identity" "current" {}

@@ -19,13 +19,14 @@ resource "null_resource" "book_image" {
   }
 
   provisioner "local-exec" {
-    command = <<-EOT
+    interpreter = local.local_exec_interpreter
+    command     = <<-EOT
       set -e
       ACCOUNT=${local.account_id}
       REGION=${var.region}
       REPO=${aws_ecr_repository.book.repository_url}
       aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
-      docker build -t "$REPO:stable" -f "${path.module}/Dockerfile" "${path.module}"
+      docker build -t "$REPO:stable" -f "${local.module_posix}/Dockerfile" "${local.module_posix}"
       docker push "$REPO:stable"
     EOT
   }

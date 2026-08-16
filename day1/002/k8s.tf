@@ -281,10 +281,10 @@ resource "null_resource" "register_book_targets" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
-    command     = "sleep 45; ${path.module}/scripts/register-book-targets.sh"
+    interpreter = local.local_exec_interpreter
+    command     = "sleep 45; bash \"${local.module_posix}/scripts/register-book-targets.sh\""
     environment = {
-      KUBECONFIG         = "${pathexpand("~")}/.kube/wskorea26.yaml"
+      KUBECONFIG         = "${replace(pathexpand("~"), "\\", "/")}/.kube/wskorea26.yaml"
       AWS_DEFAULT_REGION = var.region
       CLUSTER_NAME       = aws_eks_cluster.main.name
     }

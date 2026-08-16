@@ -203,11 +203,11 @@ resource "null_resource" "pin_kube_system_to_addon" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
+    interpreter = local.local_exec_interpreter
     environment = {
       AWS_DEFAULT_REGION = var.region
       CLUSTER_NAME       = aws_eks_cluster.main.name
-      KUBECONFIG         = "${pathexpand("~")}/.kube/wskorea26.yaml"
+      KUBECONFIG         = "${replace(pathexpand("~"), "\\", "/")}/.kube/wskorea26.yaml"
     }
     command = <<-EOT
       set -euo pipefail

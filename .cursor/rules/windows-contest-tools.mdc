@@ -1,0 +1,20 @@
+---
+description: Windows apply needs aws kubectl docker Git-bash on PATH
+
+alwaysApply: true
+---
+
+# windows contest tools
+
+# Windows contest tools (day1/002 EKS)
+
+`.\start.cmd` apply for EKS assignments requires binaries on PATH:
+
+- AWS CLI v2 (`aws.exe`)
+- `kubectl.exe`
+- Docker Desktop (`docker.exe`) + daemon running
+- Git for Windows (`bash.exe`) — Terraform `local-exec` uses `bash -c`, not `/bin/bash`
+
+`build/ensure-contest-tools.ps1` is called from `start.ps1` before apply. It prepends common install dirs to PATH and fails early if tools are missing.
+
+Do not hard-code `interpreter = ["/bin/bash", "-c"]` in assignment Terraform; use `local.local_exec_interpreter` (or `["bash", "-c"]` on Windows).
