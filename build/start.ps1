@@ -162,6 +162,41 @@ function Prompt-Folder {
     }
 }
 
+function Prompt-DeployMode {
+    Write-Host ""
+    Write-Host "=== Deploy mode ===" -ForegroundColor Cyan
+    Write-Host "  [1] Apply only"
+    Write-Host "  [2] Destroy only (cleanup state resources)"
+    Write-Host "  [3] Destroy then Apply (clean redeploy)"
+    while ($true) {
+        $choice = Read-Host "Select mode"
+        switch ($choice) {
+            "1" { return "apply" }
+            "2" { return "destroy" }
+            "3" { return "destroy-apply" }
+            default { Write-Warn "Invalid selection." }
+        }
+    }
+}
+
+function Invoke-Destroy([string]$AssignPath, [string]$RelPath) {
+    Write-Host "Will run: terraform destroy -auto-approve for $RelPath" -ForegroundColor Yellow
+    Write-Host "This deletes resources tracked in this folder's terraform state." -ForegroundColor Yellow
+    $confirm = Read-Host "Continue destroy? [y/N]"
+    if ($confirm -notmatch '^[Yy]') {
+        Write-Warn "Destroy cancelled"
+        return $false
+    }
+    Invoke-TerraformRetry -AssignPath $AssignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 3
+    $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("destroy", "-input=false", "-auto-approve"))
+    if ($code -ne 0) {
+        Write-Warn "terraform destroy failed (exit $code) - check leftovers in AWS Console"
+        return $false
+    }
+    Write-Ok "Destroy done: $RelPath"
+    return $true
+}
+
 function Invoke-TerraformRetry {
     param(
         [string]$AssignPath,
@@ -186,34 +221,63 @@ function Invoke-TerraformRetry {
     }
 }
 
-function Invoke-Apply([string]$RelPath) {
+function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
     Write-Step "5/5 Deploy (apply) - $RelPath"
-    $assignPath = Resolve-AssignmentPath $RelPath
-
-    # day1/002(+EKS) needs aws/kubectl/docker/bash on PATH for local-exec + k8s provider
-    . (Join-Path $BuildDir "ensure-contest-tools.ps1")
-    Ensure-ContestTools
 
     Write-Host "Will run: init -> validate -> plan -> apply" -ForegroundColor Yellow
     Write-Host "Providers: offline mirror under build\tf-mirror" -ForegroundColor Cyan
-    $confirm = Read-Host "Continue? [Y/n]"
+    Write-Host "Tip: if names already exist in AWS, use mode [3] Destroy then Apply" -ForegroundColor Cyan
+    $confirm = Read-Host "Continue apply? [Y/n]"
     if ($confirm -match '^[Nn]') {
         Write-Warn "Cancelled"
-        exit 0
+        return $false
     }
 
-    Invoke-TerraformRetry -AssignPath $assignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 3
+    Invoke-TerraformRetry -AssignPath $AssignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 3
 
-    $code = Invoke-RepoTerraform -Chdir $assignPath -TfArgs @("validate")
+    $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("validate"))
     if ($code -ne 0) { throw "terraform validate failed" }
 
-    $code = Invoke-RepoTerraform -Chdir $assignPath -TfArgs @("plan", "-input=false")
+    $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("plan", "-input=false"))
     if ($code -ne 0) { throw "terraform plan failed" }
 
-    $code = Invoke-RepoTerraform -Chdir $assignPath -TfArgs @("apply", "-input=false", "-auto-approve")
-    if ($code -ne 0) { throw "terraform apply failed" }
+    $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve"))
+    if ($code -ne 0) {
+        Write-Warn "terraform apply failed (exit $code)"
+        Write-Host "Partial resources may remain. Recommended: destroy then retry." -ForegroundColor Yellow
+        $ans = Read-Host "Run terraform destroy now? [Y/n]"
+        if ($ans -notmatch '^[Nn]') {
+            $null = Invoke-Destroy -AssignPath $AssignPath -RelPath $RelPath
+        }
+        throw "terraform apply failed"
+    }
 
     Write-Ok "Deploy done: $RelPath"
+    return $true
+}
+
+function Invoke-Assignment([string]$RelPath) {
+    Write-Step "5/5 Assignment - $RelPath"
+    $assignPath = Resolve-AssignmentPath $RelPath
+
+    . (Join-Path $BuildDir "ensure-contest-tools.ps1")
+    Ensure-ContestTools -RelPath $RelPath
+
+    $mode = Prompt-DeployMode
+    switch ($mode) {
+        "destroy" {
+            $ok = Invoke-Destroy -AssignPath $assignPath -RelPath $RelPath
+            if (-not $ok) { throw "destroy aborted or failed" }
+        }
+        "destroy-apply" {
+            $ok = Invoke-Destroy -AssignPath $assignPath -RelPath $RelPath
+            if (-not $ok) { throw "destroy aborted or failed - apply skipped" }
+            $null = Invoke-Apply -RelPath $RelPath -AssignPath $assignPath
+        }
+        default {
+            $null = Invoke-Apply -RelPath $RelPath -AssignPath $assignPath
+        }
+    }
 }
 
 # --- main ---
@@ -225,7 +289,7 @@ Ensure-Prerequisites
 Ensure-TerraformBinary
 Ensure-AwsEnv
 $path = Prompt-Folder
-Invoke-Apply -RelPath $path
+Invoke-Assignment -RelPath $path
 
 Write-Host ""
 Write-Host "=== Deploy finished ===" -ForegroundColor Green

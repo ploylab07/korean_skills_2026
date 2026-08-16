@@ -1,5 +1,4 @@
-﻿# Ensure aws / kubectl / docker / bash are on PATH for Windows contest apply.
-# day1/002 local-exec and kubernetes/helm providers need these binaries.
+﻿# Ensure contest binaries on PATH for Windows apply.
 # Encoding: UTF-8 with BOM (Windows PowerShell 5.x)
 
 function Find-ToolPath {
@@ -27,41 +26,68 @@ function Add-PathDir([string]$Dir) {
     $env:PATH = "$Dir;" + $env:PATH
 }
 
+function Test-NeedsBashLocalExec([string]$RelPath) {
+    # Catalog assignments with local-exec / EKS / docker build
+    return ($RelPath -match '(?i)day1\\(002|007)|day2\\(002|007|008)')
+}
+
+function Test-NeedsKubectl([string]$RelPath) {
+    return ($RelPath -match '(?i)day1\\(002|007)|day2\\(007|008)')
+}
+
+function Test-NeedsDocker([string]$RelPath) {
+    return ($RelPath -match '(?i)day1\\(002|007)')
+}
+
 function Ensure-ContestTools {
+    param(
+        [string]$RelPath = ""
+    )
     Write-Host ""
-    Write-Host ">>> Contest tools (aws / kubectl / docker / bash)" -ForegroundColor Cyan
+    Write-Host ">>> Contest tools check ($RelPath)" -ForegroundColor Cyan
 
     $pf = ${env:ProgramFiles}
     $pf86 = ${env:ProgramFiles(x86)}
     $local = $env:LOCALAPPDATA
 
+    $needBash = Test-NeedsBashLocalExec $RelPath
+    $needKubectl = Test-NeedsKubectl $RelPath
+    $needDocker = Test-NeedsDocker $RelPath
+
     $aws = Find-ToolPath -Name "aws" -CandidateExes @(
         (Join-Path $pf "Amazon\AWSCLIV2\aws.exe")
         (Join-Path $pf86 "Amazon\AWSCLIV2\aws.exe")
     )
-    $kubectl = Find-ToolPath -Name "kubectl" -CandidateExes @(
-        (Join-Path $pf "Docker\Docker\resources\bin\kubectl.exe")
-        (Join-Path $local "Microsoft\WinGet\Links\kubectl.exe")
-        (Join-Path $pf "Kubernetes\Minikube\kubectl.exe")
-    )
-    $docker = Find-ToolPath -Name "docker" -CandidateExes @(
-        (Join-Path $pf "Docker\Docker\resources\bin\docker.exe")
-        (Join-Path $env:ProgramData "DockerDesktop\version-bin\docker.exe")
-    )
-    $bash = Find-ToolPath -Name "bash" -CandidateExes @(
-        (Join-Path $pf "Git\bin\bash.exe")
-        (Join-Path $pf "Git\usr\bin\bash.exe")
-        (Join-Path $pf86 "Git\bin\bash.exe")
-    )
+    $kubectl = $null
+    $docker = $null
+    $bash = $null
+    if ($needKubectl) {
+        $kubectl = Find-ToolPath -Name "kubectl" -CandidateExes @(
+            (Join-Path $pf "Docker\Docker\resources\bin\kubectl.exe")
+            (Join-Path $local "Microsoft\WinGet\Links\kubectl.exe")
+        )
+    }
+    if ($needDocker) {
+        $docker = Find-ToolPath -Name "docker" -CandidateExes @(
+            (Join-Path $pf "Docker\Docker\resources\bin\docker.exe")
+        )
+    }
+    if ($needBash) {
+        $bash = Find-ToolPath -Name "bash" -CandidateExes @(
+            (Join-Path $pf "Git\bin\bash.exe")
+            (Join-Path $pf "Git\usr\bin\bash.exe")
+            (Join-Path $pf86 "Git\bin\bash.exe")
+        )
+    }
 
     $missing = @()
     if (-not $aws) { $missing += "AWS CLI v2 (aws.exe) - https://aws.amazon.com/cli/" }
-    if (-not $kubectl) { $missing += "kubectl - https://kubernetes.io/docs/tasks/tools/" }
-    if (-not $docker) { $missing += "Docker Desktop (docker.exe)" }
-    if (-not $bash) { $missing += "Git for Windows (bash.exe) - https://git-scm.com/download/win" }
+    if ($needKubectl -and -not $kubectl) { $missing += "kubectl - https://kubernetes.io/docs/tasks/tools/" }
+    if ($needDocker -and -not $docker) { $missing += "Docker Desktop (docker.exe)" }
+    if ($needBash -and -not $bash) { $missing += "Git for Windows (bash.exe) - https://git-scm.com/download/win" }
 
     if ($missing.Count -gt 0) {
-        Write-Host "[!] Missing tools required for day1/002 apply:" -ForegroundColor Red
+        Write-Host "[!] Missing tools required for this assignment:" -ForegroundColor Red
         foreach ($m in $missing) {
             Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow
         }
@@ -70,26 +96,23 @@ function Ensure-ContestTools {
     }
 
     Add-PathDir (Split-Path -Parent $aws)
-    Add-PathDir (Split-Path -Parent $kubectl)
-    Add-PathDir (Split-Path -Parent $docker)
-    Add-PathDir (Split-Path -Parent $bash)
-
-    # Prefer Git\bin so `bash` resolves without /bin/bash
-    $gitBin = Join-Path $pf "Git\bin"
-    if (Test-Path -LiteralPath $gitBin) { Add-PathDir $gitBin }
+    if ($kubectl) { Add-PathDir (Split-Path -Parent $kubectl) }
+    if ($docker) { Add-PathDir (Split-Path -Parent $docker) }
+    if ($bash) {
+        Add-PathDir (Split-Path -Parent $bash)
+        $gitBin = Join-Path $pf "Git\bin"
+        if (Test-Path -LiteralPath $gitBin) { Add-PathDir $gitBin }
+    }
 
     Write-Host ("[OK] aws={0}" -f $aws) -ForegroundColor Green
-    Write-Host ("[OK] kubectl={0}" -f $kubectl) -ForegroundColor Green
-    Write-Host ("[OK] docker={0}" -f $docker) -ForegroundColor Green
-    Write-Host ("[OK] bash={0}" -f $bash) -ForegroundColor Green
+    if ($needKubectl) { Write-Host ("[OK] kubectl={0}" -f $kubectl) -ForegroundColor Green }
+    if ($needDocker) { Write-Host ("[OK] docker={0}" -f $docker) -ForegroundColor Green }
+    if ($needBash) { Write-Host ("[OK] bash={0}" -f $bash) -ForegroundColor Green }
 
     & aws --version
     if ($LASTEXITCODE -ne 0) { throw "aws --version failed" }
-    & kubectl version --client --output=yaml 2>$null | Select-Object -First 1 | Out-Null
-    & docker version --format "{{.Client.Version}}" 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[!] docker daemon may be stopped - start Docker Desktop before apply" -ForegroundColor Yellow
+    if ($needBash) {
+        & bash -lc "echo bash-ok" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "bash smoke failed" }
     }
-    & bash -lc "echo bash-ok" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "bash smoke failed" }
 }

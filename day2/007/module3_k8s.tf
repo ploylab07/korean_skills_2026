@@ -54,7 +54,7 @@ resource "null_resource" "m3_k8s_stack" {
   ]
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
+    interpreter = ["bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
       export AWS_ACCESS_KEY_ID="$${AWS_ACCESS_KEY_ID}"

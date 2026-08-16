@@ -415,7 +415,7 @@ resource "null_resource" "worker_image" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
+    interpreter = ["bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
       REGION=us-west-2

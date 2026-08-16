@@ -35,7 +35,7 @@ resource "null_resource" "k8s_stack" {
   ]
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
+    interpreter = ["bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
       export KUBECONFIG=/tmp/skills-sqs-tf.kubeconfig

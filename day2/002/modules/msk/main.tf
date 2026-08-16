@@ -422,7 +422,8 @@ resource "terraform_data" "sensor_consumer_package" {
   ]
 
   provisioner "local-exec" {
-    command = <<-EOT
+    interpreter = ["bash", "-c"]
+    command     = <<-EOT
       set -eu
       package_dir="${path.module}/.build/sensor-consumer"
       rm -rf "$package_dir"

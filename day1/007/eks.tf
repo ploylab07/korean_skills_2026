@@ -286,7 +286,7 @@ resource "null_resource" "disable_public_endpoint" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
+    interpreter = ["bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
       CURRENT=$(aws eks describe-cluster --name ${local.cluster_name} --region ${local.region} \

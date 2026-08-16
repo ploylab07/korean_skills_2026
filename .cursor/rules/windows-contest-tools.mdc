@@ -1,20 +1,29 @@
 ---
-description: Windows apply needs aws kubectl docker Git-bash on PATH
-
+description: Windows apply needs aws kubectl docker Git-bash on PATH; start.cmd destroy modes
 alwaysApply: true
 ---
 
-# windows contest tools
+# Windows contest tools + cleanup
 
-# Windows contest tools (day1/002 EKS)
+`.\start.cmd` apply for EKS/local-exec assignments requires binaries on PATH:
 
-`.\start.cmd` apply for EKS assignments requires binaries on PATH:
+- AWS CLI v2 (`aws.exe`) — all assignments
+- `kubectl.exe` — day1/002, day1/007, day2/007, day2/008
+- Docker Desktop — day1/002, day1/007
+- Git for Windows (`bash.exe`) — assignments with `local-exec`
 
-- AWS CLI v2 (`aws.exe`)
-- `kubectl.exe`
-- Docker Desktop (`docker.exe`) + daemon running
-- Git for Windows (`bash.exe`) — Terraform `local-exec` uses `bash -c`, not `/bin/bash`
+`build/ensure-contest-tools.ps1` is called from `start.ps1` before deploy.
 
-`build/ensure-contest-tools.ps1` is called from `start.ps1` before apply. It prepends common install dirs to PATH and fails early if tools are missing.
+Do not hard-code `interpreter = ["/bin/bash", "-c"]`; use `["bash", "-c"]` or `local.local_exec_interpreter`.
 
-Do not hard-code `interpreter = ["/bin/bash", "-c"]` in assignment Terraform; use `local.local_exec_interpreter` (or `["bash", "-c"]` on Windows).
+## Cleanup modes (start.cmd)
+
+After picking an assignment:
+
+1. **Apply only** — normal deploy
+2. **Destroy only** — `terraform destroy` for that folder's state
+3. **Destroy then Apply** — clean redeploy when names already exist
+
+On **apply failure**, start.ps1 offers destroy immediately.
+
+Destroy only removes resources **in terraform state**. Orphans with no state need AWS Console/CLI cleanup.

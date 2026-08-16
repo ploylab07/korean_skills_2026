@@ -234,7 +234,7 @@ resource "null_resource" "register_alb_targets" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
+    interpreter = ["bash", "-c"]
     command     = "sleep 45; ${path.module}/scripts/register-alb-targets.sh"
     environment = {
       AWS_DEFAULT_REGION = local.region

@@ -81,7 +81,7 @@ resource "null_resource" "push_book_image" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
+    interpreter = ["bash", "-c"]
     command     = "${path.module}/scripts/deploy-image.sh"
     environment = {
       AWS_DEFAULT_REGION = local.region
