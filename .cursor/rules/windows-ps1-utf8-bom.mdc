@@ -1,0 +1,16 @@
+---
+description: Windows PowerShell 5 UTF-8 BOM 필수
+
+alwaysApply: true
+---
+
+# windows ps1 utf8 bom
+
+## Windows PowerShell 인코딩
+
+Windows PowerShell 5.x 는 BOM 없는 UTF-8 `.ps1` 의 한글/유니코드(—, →)를 깨뜨려 ParserError 가 난다.
+
+- `build/*.ps1`, `start.cmd` 등은 **UTF-8 with BOM** 으로 저장한다.
+- `start.ps1` 사용자 메시지는 ASCII 위주로 유지한다 (대회 PC 안전).
+- `start.cmd` 는 `chcp 65001` 후 `powershell -File` 을 호출한다.
+- 증상: `문자열에 " 종결자가 없습니다` / `닫는 '}'가 없습니다` / 깨진 한글 명령.

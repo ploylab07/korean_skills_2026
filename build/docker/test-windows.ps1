@@ -1,4 +1,4 @@
-# Windows (Docker Desktop): run the same win-test image as Linux
+﻿# Windows (Docker Desktop): run the same win-test image as Linux
 $ErrorActionPreference = "Stop"
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path

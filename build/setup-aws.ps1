@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ScriptDir
@@ -29,7 +29,7 @@ if ([string]::IsNullOrWhiteSpace($plainSecret)) {
 }
 
 @"
-# AWS credentials — do not commit
+# AWS credentials - do not commit
 AWS_ACCESS_KEY_ID=$accessKey
 AWS_SECRET_ACCESS_KEY=$plainSecret
 AWS_DEFAULT_REGION=$region

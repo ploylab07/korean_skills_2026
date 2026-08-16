@@ -1,4 +1,4 @@
-# Repository smoke test — Windows (PowerShell)
+﻿# Repository smoke test - Windows (PowerShell)
 # Terraform wrapper, env loading, init/validate/plan
 $ErrorActionPreference = "Stop"
 
@@ -45,7 +45,7 @@ function Test-Check([string]$Name, [scriptblock]$Block) {
     }
 }
 
-Write-Host "=== Korean Skills 2026 — smoke verify (Windows) ==="
+Write-Host "=== Korean Skills 2026 - smoke verify (Windows) ==="
 Write-Host "root: $Root"
 Write-Host ""
 
@@ -84,7 +84,7 @@ if (Test-Path $envFile) {
     }
 }
 else {
-    Write-Skip ".env not found — run .\setup-aws.cmd first"
+    Write-Skip ".env not found - run .\setup-aws.cmd first"
 }
 
 try {
@@ -139,7 +139,7 @@ if (Test-Path $envFile) {
         Write-Pass "terraform plan (build/smoke)"
     }
     elseif ($planOut -match "InvalidClientTokenId|SignatureDoesNotMatch|UnrecognizedClientException|security token") {
-        Write-Skip "terraform plan — AWS key invalid (wrapper/env OK)"
+        Write-Skip "terraform plan - AWS key invalid (wrapper/env OK)"
     }
     else {
         Write-Fail "terraform plan (build/smoke)"
@@ -147,7 +147,7 @@ if (Test-Path $envFile) {
     }
 }
 else {
-    Write-Skip "terraform plan — .env missing"
+    Write-Skip "terraform plan - .env missing"
 }
 
 Test-Check "harness rule exists" { Test-Path (Join-Path $Root ".cursor\rules\harness-engineering.mdc") }

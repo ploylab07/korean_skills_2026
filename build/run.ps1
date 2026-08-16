@@ -1,4 +1,4 @@
-# Single-command harness — verify, hooks, terraform for an assignment folder
+﻿# Single-command harness - verify, hooks, terraform for an assignment folder
 # Usage:
 #   .\run.cmd                          # smoke verify only
 #   .\run.cmd day1                     # verify + init/validate/plan
@@ -63,7 +63,7 @@ if ($Action -eq "") {
     }
 }
 
-Write-Host "=== Korean Skills 2026 — harness run ==="
+Write-Host "=== Korean Skills 2026 - harness run ==="
 Write-Host "root: $Root"
 Write-Host "action: $Action"
 if ($AssignmentFolder) { Write-Host "folder: $AssignmentFolder" }

@@ -1,4 +1,4 @@
-# Configure Cursor hooks for Windows (PowerShell hooks)
+﻿# Configure Cursor hooks for Windows (PowerShell hooks)
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)

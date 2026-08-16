@@ -1,4 +1,4 @@
-# Portable Terraform wrapper for Windows (PowerShell)
+﻿# Portable Terraform wrapper for Windows (PowerShell)
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

@@ -1,4 +1,4 @@
-# Add or update a Cursor rule (.cursor/rules/*.mdc)
+﻿# Add or update a Cursor rule (.cursor/rules/*.mdc)
 param(
     [Parameter(Mandatory = $true)]
     [string]$Name,

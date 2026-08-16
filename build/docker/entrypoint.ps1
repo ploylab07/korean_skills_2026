@@ -1,4 +1,4 @@
-# Runs inside PowerShell Docker image on Linux — mirrors Windows harness checks
+﻿# Runs inside PowerShell Docker image on Linux — mirrors Windows harness checks
 param()
 
 $ErrorActionPreference = "Stop"

@@ -1,4 +1,4 @@
-function Import-RepoEnv {
+﻿function Import-RepoEnv {
     param(
         [string]$BuildDir
     )
