@@ -175,6 +175,57 @@ function Resolve-ContestTools {
     }
 }
 
+function Test-DockerDaemon {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $null = & docker info 1>$null 2>$null
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($null -eq $code) { $code = 1 }
+    return ([int]$code -eq 0)
+}
+
+function Start-DockerDesktopAndWait {
+    param([int]$TimeoutSec = 180)
+
+    if (Test-DockerDaemon) { return $true }
+
+    $desktop = @(
+        (Join-Path ${env:ProgramFiles} "Docker\Docker\Docker Desktop.exe")
+        (Join-Path $env:LOCALAPPDATA "Docker\Docker Desktop.exe")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+
+    if (-not $desktop) {
+        Write-Host "[!] Docker Desktop.exe not found" -ForegroundColor Red
+        return $false
+    }
+
+    $running = Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue
+    if (-not $running) {
+        Write-Host ("Starting Docker Desktop: {0}" -f $desktop) -ForegroundColor Yellow
+        Start-Process -FilePath $desktop | Out-Null
+    }
+    else {
+        Write-Host "Docker Desktop process is up; waiting for engine..." -ForegroundColor Yellow
+    }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    $n = 0
+    while ((Get-Date) -lt $deadline) {
+        $n++
+        if (Test-DockerDaemon) {
+            Write-Host "[OK] Docker engine is ready" -ForegroundColor Green
+            return $true
+        }
+        if (($n % 6) -eq 0) {
+            $elapsed = [int]((Get-Date) - ($deadline.AddSeconds(-$TimeoutSec))).TotalSeconds
+            Write-Host ("  still waiting for docker engine... ({0}s / {1}s)" -f $elapsed, $TimeoutSec) -ForegroundColor DarkYellow
+        }
+        Start-Sleep -Seconds 5
+    }
+    return $false
+}
+
 function Ensure-ContestTools {
     param(
         [string]$RelPath = ""
@@ -228,16 +279,26 @@ function Ensure-ContestTools {
     if ($t.NeedDocker) { Write-Host ("[OK] docker={0}" -f $t.Docker) -ForegroundColor Green }
     if ($t.NeedBash) { Write-Host ("[OK] bash={0}" -f $t.Bash) -ForegroundColor Green }
 
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     & aws --version
-    if ($LASTEXITCODE -ne 0) { throw "aws --version failed" }
+    $awsCode = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    if ($awsCode -ne 0) { throw "aws --version failed" }
+
     if ($t.NeedBash) {
-        & bash -lc "echo bash-ok" | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "bash smoke failed" }
+        $ErrorActionPreference = "Continue"
+        & bash -lc "echo bash-ok" 1>$null 2>$null
+        $bashCode = $LASTEXITCODE
+        $ErrorActionPreference = $prevEap
+        if ($bashCode -ne 0) { throw "bash smoke failed" }
     }
     if ($t.NeedDocker) {
-        & docker info 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "[!] docker.exe found but daemon not running - start Docker Desktop" -ForegroundColor Yellow
+        if (-not (Start-DockerDesktopAndWait -TimeoutSec 180)) {
+            Write-Host "[!] Docker engine not ready (npipe docker_engine missing)." -ForegroundColor Red
+            Write-Host "    1) Start 'Docker Desktop' from Start Menu" -ForegroundColor Yellow
+            Write-Host "    2) Wait until status is Running (whale icon steady)" -ForegroundColor Yellow
+            Write-Host "    3) Re-run .\start.cmd" -ForegroundColor Yellow
             throw "Docker Desktop is not running"
         }
     }
