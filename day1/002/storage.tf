@@ -1,6 +1,7 @@
 resource "aws_ecr_repository" "book" {
   name                 = "wskorea26-book-repo"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -91,4 +92,24 @@ resource "aws_dynamodb_table" "data" {
   }
 
   tags = { Name = "wskorea26-data-table" }
+}
+
+# Destroy before the table (reverse depends_on): turn off deletion protection for terraform destroy.
+resource "null_resource" "dynamodb_unprotect_on_destroy" {
+  triggers = {
+    table = aws_dynamodb_table.data.name
+  }
+
+  depends_on = [aws_dynamodb_table.data]
+
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      NAME="${self.triggers.table}"
+      aws dynamodb update-table --table-name "$NAME" --no-deletion-protection-enabled >/dev/null || true
+      sleep 5
+    EOT
+  }
 }

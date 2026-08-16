@@ -38,3 +38,22 @@ resource "aws_dynamodb_table" "concert" {
 
   tags = merge(local.common_tags, { Name = "unicorn-concert-db" })
 }
+
+resource "null_resource" "dynamodb_unprotect_on_destroy" {
+  triggers = {
+    table = aws_dynamodb_table.concert.name
+  }
+
+  depends_on = [aws_dynamodb_table.concert]
+
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      NAME="${self.triggers.table}"
+      aws dynamodb update-table --table-name "$NAME" --no-deletion-protection-enabled >/dev/null || true
+      sleep 5
+    EOT
+  }
+}

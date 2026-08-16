@@ -55,6 +55,7 @@ resource "aws_ecr_repository" "book" {
   name = "unicorn-concert-app"
   # latest만 재태그 허용, 그 외(v1.0.0 등)는 immutable — 채점: IMMUTABLE_WITH_EXCLUSION
   image_tag_mutability = "IMMUTABLE_WITH_EXCLUSION"
+  force_delete         = true
 
   image_tag_mutability_exclusion_filter {
     filter      = "latest"
