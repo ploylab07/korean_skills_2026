@@ -190,12 +190,25 @@ function Invoke-Destroy([string]$AssignPath, [string]$RelPath) {
     Invoke-TerraformRetry -AssignPath $AssignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 3
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("destroy", "-input=false", "-auto-approve"))
     if ($code -ne 0) {
-        Write-Warn "terraform destroy failed (exit $code) - check leftovers in AWS Console"
-        return $false
+        Write-Warn "terraform destroy failed (exit $code) - will still try AWS name-based wipe if day1/002"
     }
-    Write-Ok "Destroy done: $RelPath"
-    Write-Host "Note: only resources in THIS folder terraform state were deleted." -ForegroundColor Yellow
-    Write-Host "If apply fails with AlreadyExists, clean leftover AWS resources (same names) then retry." -ForegroundColor Yellow
+    else {
+        Write-Ok "Destroy done: $RelPath"
+    }
+
+    # Partial state often leaves SameName leftovers; wipe by known names for day1/002
+    if ($RelPath -match '(?i)day1\\002') {
+        $wipe = Read-Host "Also wipe AWS leftovers named wskorea26-* (recommended)? [Y/n]"
+        if ($wipe -notmatch '^[Nn]') {
+            . (Join-Path $BuildDir "cleanup-wskorea26.ps1")
+            $region = if ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { "ap-northeast-2" }
+            Clear-Wskorea26Leftovers -Region $region
+        }
+    }
+    else {
+        Write-Host "Note: only resources in THIS folder terraform state were deleted." -ForegroundColor Yellow
+        Write-Host "If apply fails with AlreadyExists, clean leftover AWS resources then retry." -ForegroundColor Yellow
+    }
     return $true
 }
 
@@ -246,7 +259,8 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve"))
     if ($code -ne 0) {
         Write-Warn "terraform apply failed (exit $code)"
-        Write-Host "Partial resources may remain. Recommended: destroy then retry." -ForegroundColor Yellow
+        Write-Host "Scroll up for lines starting with 'Error:' — paste those if you need help." -ForegroundColor Yellow
+        Write-Host "Partial resources may remain. Recommended: destroy (+ wskorea26 wipe) then retry." -ForegroundColor Yellow
         $ans = Read-Host "Run terraform destroy now? [Y/n]"
         if ($ans -notmatch '^[Nn]') {
             $null = Invoke-Destroy -AssignPath $AssignPath -RelPath $RelPath
