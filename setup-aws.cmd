@@ -1,3 +1,3 @@
-﻿@echo off
-"%~dp0build\setup-aws.cmd"
+@echo off
+"%~dp0build\setup-aws.cmd" %*
 exit /b %ERRORLEVEL%
