@@ -1,5 +1,9 @@
 ﻿# Ensure contest binaries on PATH for Windows apply.
+# Auto-installs aws (MSI/winget), Git (winget), kubectl (download to build\.bin).
+# Docker Desktop cannot be fully automated - user must install + start it.
 # Encoding: UTF-8 with BOM (Windows PowerShell 5.x)
+
+$script:ContestToolsBinDir = Join-Path $PSScriptRoot ".bin"
 
 function Find-ToolPath {
     param(
@@ -26,8 +30,14 @@ function Add-PathDir([string]$Dir) {
     $env:PATH = "$Dir;" + $env:PATH
 }
 
+function Refresh-ProcessPath {
+    $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:PATH = "$machine;$user"
+    Add-PathDir $script:ContestToolsBinDir
+}
+
 function Test-NeedsBashLocalExec([string]$RelPath) {
-    # Catalog assignments with local-exec / EKS / docker build
     return ($RelPath -match '(?i)day1\\(002|007)|day2\\(002|007|008)')
 }
 
@@ -39,16 +49,89 @@ function Test-NeedsDocker([string]$RelPath) {
     return ($RelPath -match '(?i)day1\\(002|007)')
 }
 
-function Ensure-ContestTools {
+function Install-KubectlPortable {
+    New-Item -ItemType Directory -Force -Path $script:ContestToolsBinDir | Out-Null
+    $dest = Join-Path $script:ContestToolsBinDir "kubectl.exe"
+    if (Test-Path -LiteralPath $dest) { return $dest }
+    $verUrl = "https://dl.k8s.io/release/stable.txt"
+    Write-Host "Downloading kubectl to build\.bin ..." -ForegroundColor Yellow
+    $ver = (Invoke-WebRequest -Uri $verUrl -UseBasicParsing).Content.Trim()
+    $url = "https://dl.k8s.io/release/$ver/bin/windows/amd64/kubectl.exe"
+    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+    return $dest
+}
+
+function Install-AwsCliMsi {
+    $msi = Join-Path ([System.IO.Path]::GetTempPath()) "AWSCLIV2.msi"
+    Write-Host "Downloading AWS CLI v2 MSI ..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi -UseBasicParsing
+    Write-Host "Installing AWS CLI v2 (quiet) ..." -ForegroundColor Yellow
+    $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", $msi, "/qn", "/norestart") -Wait -PassThru
+    Remove-Item $msi -Force -ErrorAction SilentlyContinue
+    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
+        throw ("AWS CLI MSI install failed (exit {0})" -f $p.ExitCode)
+    }
+}
+
+function Install-WithWinget([string]$Id, [string]$Label) {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) { return $false }
+    Write-Host ("Installing {0} via winget ({1}) ..." -f $Label, $Id) -ForegroundColor Yellow
+    & winget install --id $Id -e --accept-package-agreements --accept-source-agreements --disable-interactivity
+    return ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) # already installed
+}
+
+function Try-InstallMissingTools {
     param(
-        [string]$RelPath = ""
+        [bool]$NeedAws,
+        [bool]$NeedKubectl,
+        [bool]$NeedBash,
+        [bool]$NeedDocker
     )
     Write-Host ""
-    Write-Host ">>> Contest tools check ($RelPath)" -ForegroundColor Cyan
+    Write-Host "Auto-install missing tools? (kubectl download / AWS MSI / Git winget)" -ForegroundColor Cyan
+    Write-Host "Docker Desktop still needs a manual install if missing." -ForegroundColor Yellow
+    $ans = Read-Host "Install now? [Y/n]"
+    if ($ans -match '^[Nn]') { return }
+
+    if ($NeedKubectl) {
+        try { $null = Install-KubectlPortable } catch { Write-Host ("kubectl download failed: {0}" -f $_) -ForegroundColor Red }
+    }
+    if ($NeedAws) {
+        $ok = $false
+        try { $ok = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" } catch { $ok = $false }
+        if (-not $ok) {
+            try { Install-AwsCliMsi } catch { Write-Host ("AWS CLI install failed: {0}" -f $_) -ForegroundColor Red }
+        }
+    }
+    if ($NeedBash) {
+        $ok = $false
+        try { $ok = Install-WithWinget -Id "Git.Git" -Label "Git for Windows" } catch { $ok = $false }
+        if (-not $ok) {
+            Write-Host "Git winget failed. Install from https://git-scm.com/download/win" -ForegroundColor Yellow
+        }
+    }
+    if ($NeedDocker) {
+        $ok = $false
+        try { $ok = Install-WithWinget -Id "Docker.DockerDesktop" -Label "Docker Desktop" } catch { $ok = $false }
+        if ($ok) {
+            Write-Host "Docker Desktop install started/queued. Start Docker Desktop, wait until it is running, then re-run .\start.cmd" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "Install Docker Desktop manually: https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
+        }
+    }
+
+    Refresh-ProcessPath
+}
+
+function Resolve-ContestTools {
+    param([string]$RelPath)
 
     $pf = ${env:ProgramFiles}
     $pf86 = ${env:ProgramFiles(x86)}
     $local = $env:LOCALAPPDATA
+    Add-PathDir $script:ContestToolsBinDir
 
     $needBash = Test-NeedsBashLocalExec $RelPath
     $needKubectl = Test-NeedsKubectl $RelPath
@@ -63,6 +146,7 @@ function Ensure-ContestTools {
     $bash = $null
     if ($needKubectl) {
         $kubectl = Find-ToolPath -Name "kubectl" -CandidateExes @(
+            (Join-Path $script:ContestToolsBinDir "kubectl.exe")
             (Join-Path $pf "Docker\Docker\resources\bin\kubectl.exe")
             (Join-Path $local "Microsoft\WinGet\Links\kubectl.exe")
         )
@@ -80,39 +164,81 @@ function Ensure-ContestTools {
         )
     }
 
+    return @{
+        NeedBash    = $needBash
+        NeedKubectl = $needKubectl
+        NeedDocker  = $needDocker
+        Aws         = $aws
+        Kubectl     = $kubectl
+        Docker      = $docker
+        Bash        = $bash
+    }
+}
+
+function Ensure-ContestTools {
+    param(
+        [string]$RelPath = ""
+    )
+    Write-Host ""
+    Write-Host ">>> Contest tools check ($RelPath)" -ForegroundColor Cyan
+    Refresh-ProcessPath
+
+    $t = Resolve-ContestTools -RelPath $RelPath
     $missing = @()
-    if (-not $aws) { $missing += "AWS CLI v2 (aws.exe) - https://aws.amazon.com/cli/" }
-    if ($needKubectl -and -not $kubectl) { $missing += "kubectl - https://kubernetes.io/docs/tasks/tools/" }
-    if ($needDocker -and -not $docker) { $missing += "Docker Desktop (docker.exe)" }
-    if ($needBash -and -not $bash) { $missing += "Git for Windows (bash.exe) - https://git-scm.com/download/win" }
+    if (-not $t.Aws) { $missing += "AWS CLI v2 (aws.exe)" }
+    if ($t.NeedKubectl -and -not $t.Kubectl) { $missing += "kubectl" }
+    if ($t.NeedDocker -and -not $t.Docker) { $missing += "Docker Desktop (docker.exe)" }
+    if ($t.NeedBash -and -not $t.Bash) { $missing += "Git for Windows (bash.exe)" }
 
     if ($missing.Count -gt 0) {
-        Write-Host "[!] Missing tools required for this assignment:" -ForegroundColor Red
-        foreach ($m in $missing) {
-            Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow
-        }
-        Write-Host "Install them, open a NEW PowerShell, then re-run .\start.cmd" -ForegroundColor Yellow
+        Write-Host "[!] Missing tools:" -ForegroundColor Yellow
+        foreach ($m in $missing) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
+        Try-InstallMissingTools -NeedAws (-not $t.Aws) -NeedKubectl ($t.NeedKubectl -and -not $t.Kubectl) `
+            -NeedBash ($t.NeedBash -and -not $t.Bash) -NeedDocker ($t.NeedDocker -and -not $t.Docker)
+        Refresh-ProcessPath
+        $t = Resolve-ContestTools -RelPath $RelPath
+    }
+
+    $still = @()
+    if (-not $t.Aws) { $still += "AWS CLI v2 - https://aws.amazon.com/cli/" }
+    if ($t.NeedKubectl -and -not $t.Kubectl) { $still += "kubectl - will retry download on next run" }
+    if ($t.NeedDocker -and -not $t.Docker) {
+        $still += "Docker Desktop - install + START it, then re-run .\start.cmd (https://www.docker.com/products/docker-desktop/)"
+    }
+    if ($t.NeedBash -and -not $t.Bash) { $still += "Git for Windows - https://git-scm.com/download/win" }
+
+    if ($still.Count -gt 0) {
+        Write-Host "[!] Still missing after install attempt:" -ForegroundColor Red
+        foreach ($m in $still) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
+        Write-Host "Open a NEW PowerShell after MSI/winget installs, then re-run .\start.cmd" -ForegroundColor Yellow
         throw "Contest tools missing"
     }
 
-    Add-PathDir (Split-Path -Parent $aws)
-    if ($kubectl) { Add-PathDir (Split-Path -Parent $kubectl) }
-    if ($docker) { Add-PathDir (Split-Path -Parent $docker) }
-    if ($bash) {
-        Add-PathDir (Split-Path -Parent $bash)
-        $gitBin = Join-Path $pf "Git\bin"
+    Add-PathDir (Split-Path -Parent $t.Aws)
+    if ($t.Kubectl) { Add-PathDir (Split-Path -Parent $t.Kubectl) }
+    if ($t.Docker) { Add-PathDir (Split-Path -Parent $t.Docker) }
+    if ($t.Bash) {
+        Add-PathDir (Split-Path -Parent $t.Bash)
+        $gitBin = Join-Path ${env:ProgramFiles} "Git\bin"
         if (Test-Path -LiteralPath $gitBin) { Add-PathDir $gitBin }
     }
 
-    Write-Host ("[OK] aws={0}" -f $aws) -ForegroundColor Green
-    if ($needKubectl) { Write-Host ("[OK] kubectl={0}" -f $kubectl) -ForegroundColor Green }
-    if ($needDocker) { Write-Host ("[OK] docker={0}" -f $docker) -ForegroundColor Green }
-    if ($needBash) { Write-Host ("[OK] bash={0}" -f $bash) -ForegroundColor Green }
+    Write-Host ("[OK] aws={0}" -f $t.Aws) -ForegroundColor Green
+    if ($t.NeedKubectl) { Write-Host ("[OK] kubectl={0}" -f $t.Kubectl) -ForegroundColor Green }
+    if ($t.NeedDocker) { Write-Host ("[OK] docker={0}" -f $t.Docker) -ForegroundColor Green }
+    if ($t.NeedBash) { Write-Host ("[OK] bash={0}" -f $t.Bash) -ForegroundColor Green }
 
     & aws --version
     if ($LASTEXITCODE -ne 0) { throw "aws --version failed" }
-    if ($needBash) {
+    if ($t.NeedBash) {
         & bash -lc "echo bash-ok" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "bash smoke failed" }
+    }
+    if ($t.NeedDocker) {
+        & docker info 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[!] docker.exe found but daemon not running - start Docker Desktop" -ForegroundColor Yellow
+            throw "Docker Desktop is not running"
+        }
     }
 }
