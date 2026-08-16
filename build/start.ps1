@@ -39,7 +39,7 @@ function Get-TerraformExe {
     if (-not (Test-Path $TfExe)) {
         throw "terraform.exe not found: $TfExe"
     }
-    return $TfExe
+    return [string]$TfExe
 }
 
 function Invoke-RepoTerraform {
@@ -47,11 +47,24 @@ function Invoke-RepoTerraform {
         [Parameter(Mandatory = $true)][string]$Chdir,
         [Parameter(Mandatory = $true)][string[]]$TfArgs
     )
-    $exe = Get-TerraformExe
-    # IMPORTANT: call .exe directly. Calling .cmd from PowerShell mangles -chdir=...
+    $exe = [string](Get-TerraformExe)
     $allArgs = @("-chdir=$Chdir") + $TfArgs
-    & $exe @allArgs
-    return $LASTEXITCODE
+    Write-Host ("RUN: {0} {1}" -f $exe, ($allArgs -join ' '))
+    Write-Host ("TF_CLI_CONFIG_FILE={0}" -f $env:TF_CLI_CONFIG_FILE)
+
+    # Capture stdout/stderr so they are NOT returned as function output (avoids System.Object[])
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $output = & $exe @allArgs 2>&1
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    if ($null -eq $code) { $code = 0 }
+
+    foreach ($line in @($output)) {
+        Write-Host ([string]$line)
+    }
+
+    return [int]$code
 }
 
 function Ensure-Prerequisites {
@@ -163,12 +176,12 @@ function Invoke-TerraformRetry {
     while ($true) {
         $attempt++
         Write-Host ("[{0}] {1} (attempt {2}/{3})" -f $Label, ($TfArgs -join ' '), $attempt, $MaxAttempts) -ForegroundColor Yellow
-        $code = Invoke-RepoTerraform -Chdir $AssignPath -TfArgs $TfArgs
+        $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs $TfArgs)
         if ($code -eq 0) { return }
         if ($attempt -ge $MaxAttempts) {
             throw ("{0} failed after {1} attempts (exit {2})" -f $Label, $MaxAttempts, $code)
         }
-        Write-Warn ("{0} failed - retry in {1}s..." -f $Label, (5 * $attempt))
+        Write-Warn ("{0} failed (exit {1}) - retry in {2}s..." -f $Label, $code, (5 * $attempt))
         Start-Sleep -Seconds (5 * $attempt)
     }
 }
