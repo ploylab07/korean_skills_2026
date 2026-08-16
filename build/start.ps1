@@ -194,6 +194,8 @@ function Invoke-Destroy([string]$AssignPath, [string]$RelPath) {
         return $false
     }
     Write-Ok "Destroy done: $RelPath"
+    Write-Host "Note: only resources in THIS folder terraform state were deleted." -ForegroundColor Yellow
+    Write-Host "If apply fails with AlreadyExists, clean leftover AWS resources (same names) then retry." -ForegroundColor Yellow
     return $true
 }
 
