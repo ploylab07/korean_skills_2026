@@ -5,25 +5,21 @@ alwaysApply: true
 
 # Windows contest tools + cleanup
 
-`.\start.cmd` apply for EKS/local-exec assignments requires binaries on PATH:
+`.\start.cmd` calls `build/ensure-contest-tools.ps1` which can auto-install:
 
-- AWS CLI v2 (`aws.exe`) — all assignments
-- `kubectl.exe` — day1/002, day1/007, day2/007, day2/008
-- Docker Desktop — day1/002, day1/007
-- Git for Windows (`bash.exe`) — assignments with `local-exec`
+- **kubectl** → download to `build\.bin\kubectl.exe`
+- **AWS CLI** → winget or MSI quiet install
+- **Git for Windows** → winget
+- **Docker Desktop** → winget attempt only; user must **start** Docker Desktop
 
-`build/ensure-contest-tools.ps1` is called from `start.ps1` before deploy.
+After MSI/winget, a **new PowerShell** may be required so PATH updates.
 
 Do not hard-code `interpreter = ["/bin/bash", "-c"]`; use `["bash", "-c"]` or `local.local_exec_interpreter`.
 
 ## Cleanup modes (start.cmd)
 
-After picking an assignment:
+1. Apply only
+2. Destroy only
+3. Destroy then Apply
 
-1. **Apply only** — normal deploy
-2. **Destroy only** — `terraform destroy` for that folder's state
-3. **Destroy then Apply** — clean redeploy when names already exist
-
-On **apply failure**, start.ps1 offers destroy immediately.
-
-Destroy only removes resources **in terraform state**. Orphans with no state need AWS Console/CLI cleanup.
+On apply failure, offers destroy. Destroy only covers terraform state resources.
