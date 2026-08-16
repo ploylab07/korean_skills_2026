@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:1OF0rDUteVdoX04BrtmTc0T4NOo6+D0utmK6hM0EzZw="
+      ],
+      "url": "terraform-provider-kubernetes_2.38.0_windows_amd64.zip"
+    }
+  }
+}

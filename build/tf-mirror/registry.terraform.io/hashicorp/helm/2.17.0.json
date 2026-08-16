@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:rsqAO9oKyDMLiysQqrWEzf9CNtU9NJtwEGk7bSItC9g="
+      ],
+      "url": "terraform-provider-helm_2.17.0_windows_amd64.zip"
+    }
+  }
+}

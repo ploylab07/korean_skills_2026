@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:7QWrBlzkkFAFyDl9UsfC0tdfNFquFx03miHwZcta33Q="
+      ],
+      "url": "terraform-provider-tls_4.3.0_windows_amd64.zip"
+    }
+  }
+}

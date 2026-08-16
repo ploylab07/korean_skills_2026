@@ -1,4 +1,5 @@
 ﻿# Portable Terraform wrapper for Windows (PowerShell)
+# Encoding: UTF-8 with BOM for Windows PowerShell 5.x
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -26,7 +27,19 @@ function Ensure-Terraform {
     $tmpZip = Join-Path ([System.IO.Path]::GetTempPath()) $zipName
 
     Write-Host "Downloading Terraform $TfVersion ($platform)..."
-    Invoke-WebRequest -Uri $url -OutFile $tmpZip -UseBasicParsing
+    $ok = $false
+    foreach ($i in 1..5) {
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $tmpZip -UseBasicParsing
+            $ok = $true
+            break
+        }
+        catch {
+            Write-Host "Download failed (attempt $i/5): $_"
+            Start-Sleep -Seconds (3 * $i)
+        }
+    }
+    if (-not $ok) { throw "Failed to download Terraform from HashiCorp" }
 
     New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
     Expand-Archive -Path $tmpZip -DestinationPath $BinDir -Force
@@ -36,15 +49,18 @@ function Ensure-Terraform {
 
 Ensure-Terraform
 
+# Prefer bundled Windows provider mirror (no releases.hashicorp.com provider downloads)
+. (Join-Path $ScriptDir "ensure-tf-mirror.ps1")
+
 . (Join-Path $ScriptDir "load-env.ps1")
 Import-RepoEnv -BuildDir $ScriptDir
 
 $RepoRoot = Split-Path -Parent $ScriptDir
 $EnvFile = Join-Path $RepoRoot ".env"
 if (-not (Test-Path $EnvFile) -and ($args.Count -gt 0) -and ($args[0] -in @("apply", "plan"))) {
-    Write-Host "hint: AWS 키가 없으면 먼저 setup-aws 를 실행하세요." -ForegroundColor Yellow
-    Write-Host "      .\setup-aws.cmd" -ForegroundColor Yellow
+    Write-Host "hint: set AWS keys with .\setup-aws.cmd first" -ForegroundColor Yellow
 }
 
+# Call terraform.exe directly (avoid .cmd arg mangling of -chdir in PowerShell)
 & $TfExe @args
 exit $LASTEXITCODE

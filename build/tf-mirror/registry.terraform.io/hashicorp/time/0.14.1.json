@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:OsvT2OO5/xg7l54ijTaf9zlnHK+3xd5GvjLg9oXxPmA="
+      ],
+      "url": "terraform-provider-time_0.14.1_windows_amd64.zip"
+    }
+  }
+}

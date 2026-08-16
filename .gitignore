@@ -25,6 +25,9 @@ Thumbs.db
 __pycache__/
 build/.bin/
 build/smoke/.verify.lock
+# reassembled from .part.* on Windows - do not commit full AWS zips
+build/tf-mirror/**/terraform-provider-aws_*_windows_amd64.zip
+build/terraform.rc
 crash.log
 node_modules/
 tfplan

@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:hntY8CxZwukx6VpUX9Bm00VSURuup9pL1Ss2M4NiUZA="
+      ],
+      "url": "terraform-provider-null_3.3.0_windows_amd64.zip"
+    }
+  }
+}

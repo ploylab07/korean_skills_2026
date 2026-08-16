@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:px3Hpv/tL288wzu5knHywTTBcrydLnnGEiF/NIQBaRs="
+      ],
+      "url": "terraform-provider-local_2.9.0_windows_amd64.zip"
+    }
+  }
+}

@@ -5,6 +5,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $BuildDir = Join-Path $Root "build"
 $TfCmd = Join-Path $Root "terraform.cmd"
+$TfExe = Join-Path $BuildDir ".bin\terraform.exe"
 $EnvFile = Join-Path $Root ".env"
 
 $Catalog = @(
@@ -30,6 +31,29 @@ function Write-Warn([string]$Message) {
     Write-Host "[!] $Message" -ForegroundColor Yellow
 }
 
+function Get-TerraformExe {
+    if (-not (Test-Path $TfExe)) {
+        # Triggers download via wrapper (terraform.ps1)
+        & $TfCmd version | Out-Null
+    }
+    if (-not (Test-Path $TfExe)) {
+        throw "terraform.exe not found: $TfExe"
+    }
+    return $TfExe
+}
+
+function Invoke-RepoTerraform {
+    param(
+        [Parameter(Mandatory = $true)][string]$Chdir,
+        [Parameter(Mandatory = $true)][string[]]$TfArgs
+    )
+    $exe = Get-TerraformExe
+    # IMPORTANT: call .exe directly. Calling .cmd from PowerShell mangles -chdir=...
+    $allArgs = @("-chdir=$Chdir") + $TfArgs
+    & $exe @allArgs
+    return $LASTEXITCODE
+}
+
 function Ensure-Prerequisites {
     Write-Step "1/5 PowerShell / network check"
 
@@ -39,25 +63,36 @@ function Ensure-Prerequisites {
     }
     Write-Ok "PowerShell $psVer"
 
+    $mirror = Join-Path $BuildDir "tf-mirror"
+    if (Test-Path $mirror) {
+        Write-Ok "Offline provider mirror present"
+        return
+    }
+
     try {
         $null = Invoke-WebRequest -Uri "https://releases.hashicorp.com" -Method Head -UseBasicParsing -TimeoutSec 10
         Write-Ok "Network OK"
     }
     catch {
-        throw "Internet required (Terraform download)."
+        throw "Internet required (Terraform/provider download) or missing build/tf-mirror."
     }
 }
 
 function Ensure-TerraformBinary {
-    Write-Step "2/5 Terraform check/install"
+    Write-Step "2/5 Terraform + provider mirror"
     if (-not (Test-Path $TfCmd)) {
         throw "terraform.cmd not found: $TfCmd"
     }
-    & $TfCmd version
+    # ensure-tf-mirror.ps1 is also loaded by terraform.ps1; call explicitly for clear logs
+    . (Join-Path $BuildDir "ensure-tf-mirror.ps1")
+    $null = Get-TerraformExe
+    $code = Invoke-RepoTerraform -Chdir $Root -TfArgs @("version")
+    # version with -chdir to repo root may warn; still ok if exe works
+    & (Get-TerraformExe) version
     if ($LASTEXITCODE -ne 0) {
         throw "Terraform failed"
     }
-    Write-Ok "Terraform ready"
+    Write-Ok "Terraform ready (mirror mode)"
 }
 
 function Ensure-AwsEnv {
@@ -121,9 +156,8 @@ function Invoke-TerraformRetry {
         [string]$AssignPath,
         [string[]]$TfArgs,
         [string]$Label,
-        [int]$MaxAttempts = 5
+        [int]$MaxAttempts = 3
     )
-    # Provider download from releases.hashicorp.com can EOF on flaky networks
     if (-not $env:TF_REGISTRY_CLIENT_TIMEOUT) {
         $env:TF_REGISTRY_CLIENT_TIMEOUT = "180"
     }
@@ -131,12 +165,12 @@ function Invoke-TerraformRetry {
     while ($true) {
         $attempt++
         Write-Host ("[{0}] {1} (attempt {2}/{3})" -f $Label, ($TfArgs -join ' '), $attempt, $MaxAttempts) -ForegroundColor Yellow
-        & $TfCmd -chdir="$AssignPath" @TfArgs
-        if ($LASTEXITCODE -eq 0) { return }
+        $code = Invoke-RepoTerraform -Chdir $AssignPath -TfArgs $TfArgs
+        if ($code -eq 0) { return }
         if ($attempt -ge $MaxAttempts) {
-            throw ("{0} failed after {1} attempts (exit {2})" -f $Label, $MaxAttempts, $LASTEXITCODE)
+            throw ("{0} failed after {1} attempts (exit {2})" -f $Label, $MaxAttempts, $code)
         }
-        Write-Warn ("{0} failed - network/provider download? retry in {1}s..." -f $Label, (5 * $attempt))
+        Write-Warn ("{0} failed - retry in {1}s..." -f $Label, (5 * $attempt))
         Start-Sleep -Seconds (5 * $attempt)
     }
 }
@@ -146,23 +180,23 @@ function Invoke-Apply([string]$RelPath) {
     $assignPath = Resolve-AssignmentPath $RelPath
 
     Write-Host "Will run: init -> validate -> plan -> apply" -ForegroundColor Yellow
+    Write-Host "Providers: offline mirror under build\tf-mirror" -ForegroundColor Cyan
     $confirm = Read-Host "Continue? [Y/n]"
     if ($confirm -match '^[Nn]') {
         Write-Warn "Cancelled"
         exit 0
     }
 
-    # init downloads providers - retry on EOF / flaky HashiCorp CDN
-    Invoke-TerraformRetry -AssignPath $assignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 5
+    Invoke-TerraformRetry -AssignPath $assignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 3
 
-    & $TfCmd -chdir="$assignPath" validate
-    if ($LASTEXITCODE -ne 0) { throw "terraform validate failed" }
+    $code = Invoke-RepoTerraform -Chdir $assignPath -TfArgs @("validate")
+    if ($code -ne 0) { throw "terraform validate failed" }
 
-    & $TfCmd -chdir="$assignPath" plan "-input=false"
-    if ($LASTEXITCODE -ne 0) { throw "terraform plan failed" }
+    $code = Invoke-RepoTerraform -Chdir $assignPath -TfArgs @("plan", "-input=false")
+    if ($code -ne 0) { throw "terraform plan failed" }
 
-    & $TfCmd -chdir="$assignPath" apply "-input=false" -auto-approve
-    if ($LASTEXITCODE -ne 0) { throw "terraform apply failed" }
+    $code = Invoke-RepoTerraform -Chdir $assignPath -TfArgs @("apply", "-input=false", "-auto-approve")
+    if ($code -ne 0) { throw "terraform apply failed" }
 
     Write-Ok "Deploy done: $RelPath"
 }

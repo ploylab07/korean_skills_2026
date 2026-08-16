@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:i4jOdktQW0SDbjM3IC2ZSqdd881FzVY+V11XKkLPHrk="
+      ],
+      "url": "terraform-provider-archive_2.8.0_windows_amd64.zip"
+    }
+  }
+}

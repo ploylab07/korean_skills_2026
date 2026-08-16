@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:aKdhZmlQi4A+18NUfL41TdCSDL94nB5hrpHUSx/bh7w="
+      ],
+      "url": "terraform-provider-aws_6.60.0_windows_amd64.zip"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "archives": {
+    "windows_amd64": {
+      "hashes": [
+        "h1:q/uaUTBdKgAmZESrwsoeDQff9uUA/cI/N5ZKNgVwa9c="
+      ],
+      "url": "terraform-provider-random_3.9.0_windows_amd64.zip"
+    }
+  }
+}
