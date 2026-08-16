@@ -94,12 +94,11 @@ resource "kubernetes_service" "book" {
 }
 
 resource "helm_release" "kube_prometheus_stack" {
-  name       = "kps"
-  repository = "https://prometheus-community.github.io/helm-charts"
-  chart      = "kube-prometheus-stack"
-  namespace  = kubernetes_namespace.monitoring.metadata[0].name
-  timeout    = 900
-  values     = [file("${path.module}/k8s/monitoring/values.yaml")]
+  name      = "kps"
+  chart     = "${path.module}/charts/kube-prometheus-stack-66.2.1.tgz"
+  namespace = kubernetes_namespace.monitoring.metadata[0].name
+  timeout   = 900
+  values    = [file("${path.module}/k8s/monitoring/values.yaml")]
 
   set {
     name  = "grafana.adminUser"

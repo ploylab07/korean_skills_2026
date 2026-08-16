@@ -169,11 +169,10 @@ resource "kubernetes_daemon_set_v1" "fluent_bit" {
 
 # --- kube-prometheus-stack (Prometheus + Grafana), addon nodes only ---
 resource "helm_release" "kube_prometheus_stack" {
-  name       = "kps"
-  repository = "https://prometheus-community.github.io/helm-charts"
-  chart      = "kube-prometheus-stack"
-  namespace  = kubernetes_namespace_v1.monitoring.metadata[0].name
-  timeout    = 900
+  name      = "kps"
+  chart     = "${path.module}/charts/kube-prometheus-stack-66.2.1.tgz"
+  namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
+  timeout   = 900
 
   # EKS manages the control plane; unicorn=addon-only components probe it via
   # the standard k8s API service, but etcd/scheduler/controller-manager are
