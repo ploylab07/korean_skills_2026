@@ -1,25 +1,24 @@
 ---
-description: Windows apply needs aws kubectl docker Git-bash on PATH; start.cmd destroy modes
+description: Windows contest tools; ECR images via CodeBuild (no local Docker)
 alwaysApply: true
 ---
 
-# Windows contest tools + cleanup
+# Windows contest tools + ECR images
 
-`.\start.cmd` calls `build/ensure-contest-tools.ps1` which can auto-install:
+Image builds for `day1/002` and `day1/007` use `build/modules/ecr-codebuild`:
 
-- **kubectl** → download to `build\.bin\kubectl.exe`
-- **AWS CLI** → winget or MSI quiet install
-- **Git for Windows** → winget
-- **Docker Desktop** → winget attempt only; user must **start** Docker Desktop
+1. Zip Dockerfile + app binary → S3  
+2. CodeBuild (privileged) `docker build` / `docker push` to ECR  
+3. `null_resource` waits with AWS CLI (needs `aws` + `bash`, **not** Docker Desktop)
 
-After MSI/winget, a **new PowerShell** may be required so PATH updates.
+`ensure-contest-tools.ps1` no longer requires Docker Desktop.
 
-Do not hard-code `interpreter = ["/bin/bash", "-c"]`; use `["bash", "-c"]` or `local.local_exec_interpreter`.
+Still need: AWS CLI, Git bash (local-exec), kubectl for EKS assignments.
 
 ## Cleanup modes (start.cmd)
 
-1. Apply only
-2. Destroy only
-3. Destroy then Apply
+1. Apply only  
+2. Destroy only  
+3. Destroy then Apply  
 
-On apply failure, offers destroy. Destroy only covers terraform state resources.
+Destroy removes CodeBuild/S3 helper resources tracked in state too.
