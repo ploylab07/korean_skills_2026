@@ -73,22 +73,43 @@ resource "aws_ecr_repository" "book" {
   tags = merge(local.common_tags, { Name = "unicorn-concert-app" })
 }
 
-resource "null_resource" "push_book_image" {
-  triggers = {
-    dockerfile_hash = filesha256("${path.module}/Dockerfile")
-    binary_hash     = filesha256("${path.module}/book")
-    repo            = aws_ecr_repository.book.repository_url
-  }
+# Push unicorn-concert-app :v1.0.0 and :latest via CodeBuild (no local Docker)
+module "book_image" {
+  source = "../../build/modules/ecr-codebuild"
 
-  provisioner "local-exec" {
-    interpreter = ["bash", "-c"]
-    command     = "${path.module}/scripts/deploy-image.sh"
-    environment = {
-      AWS_DEFAULT_REGION = local.region
-    }
-  }
+  name_prefix         = "unicorn-book"
+  region              = local.region
+  account_id          = local.account_id
+  ecr_repository_name = aws_ecr_repository.book.name
+  ecr_repository_url  = aws_ecr_repository.book.repository_url
+  ecr_kms_key_arn     = aws_kms_key.data.arn
+  context_dir         = path.module
+  dockerfile          = "Dockerfile"
+  image_tags          = ["v1.0.0", "latest"]
+  excludes = [
+    ".terraform",
+    ".terraform/**",
+    "*.tf",
+    "*.tfvars",
+    "*.md",
+    "*.sh",
+    "scripts",
+    "scripts/**",
+    "mark.sh",
+    ".git",
+    ".git/**",
+    "terraform.tfstate*",
+  ]
 
   depends_on = [aws_ecr_repository.book]
+}
+
+resource "null_resource" "push_book_image" {
+  triggers = {
+    build = module.book_image.build_complete
+    tag   = "v1.0.0"
+  }
+  depends_on = [module.book_image]
 }
 
 resource "aws_ecr_lifecycle_policy" "book" {

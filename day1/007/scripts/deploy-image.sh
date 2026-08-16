@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Builds the Book App image and pushes v1.0.0 + latest to unicorn-concert-app.
+# Legacy local docker push — prefer Terraform module book_image (CodeBuild).
+# Kept for manual recovery only.
 set -euo pipefail
+echo "NOTE: Image push is handled by CodeBuild via Terraform (module.book_image)." >&2
+echo "This script is optional manual fallback requiring local Docker." >&2
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 

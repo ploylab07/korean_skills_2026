@@ -12,30 +12,49 @@ resource "aws_ecr_repository" "book" {
   }
 }
 
-resource "null_resource" "book_image" {
-  triggers = {
-    book_hash = filesha256("${path.module}/book")
-    repo_url  = aws_ecr_repository.book.repository_url
-  }
+# Push book image as :stable via CodeBuild (no local Docker Desktop)
+module "book_image" {
+  source = "../../build/modules/ecr-codebuild"
 
-  provisioner "local-exec" {
-    interpreter = local.local_exec_interpreter
-    command     = <<-EOT
-      set -e
-      ACCOUNT=${local.account_id}
-      REGION=${var.region}
-      REPO=${aws_ecr_repository.book.repository_url}
-      aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
-      docker build -t "$REPO:stable" -f "${local.module_posix}/Dockerfile" "${local.module_posix}"
-      docker push "$REPO:stable"
-    EOT
-  }
-
-  lifecycle {
-    ignore_changes = [triggers]
-  }
+  name_prefix          = "wskorea26-book"
+  region               = var.region
+  account_id           = local.account_id
+  ecr_repository_name  = aws_ecr_repository.book.name
+  ecr_repository_url   = aws_ecr_repository.book.repository_url
+  ecr_kms_key_arn      = aws_kms_key.ecr.arn
+  context_dir          = path.module
+  dockerfile           = "Dockerfile"
+  image_tags           = ["stable"]
+  excludes = [
+    ".terraform",
+    ".terraform/**",
+    "*.tf",
+    "*.tfvars",
+    "*.md",
+    "*.sh",
+    "scripts",
+    "scripts/**",
+    "mark.sh",
+    ".git",
+    ".git/**",
+    "terraform.tfstate*",
+    "main.jpeg",
+    "index.html",
+    "error.html",
+    "web",
+    "web/**",
+  ]
 
   depends_on = [aws_ecr_repository.book]
+}
+
+# Alias for existing depends_on references (k8s.tf)
+resource "null_resource" "book_image" {
+  triggers = {
+    build = module.book_image.build_complete
+    tag   = "stable" # ECR :stable
+  }
+  depends_on = [module.book_image]
 }
 
 resource "aws_dynamodb_table" "data" {

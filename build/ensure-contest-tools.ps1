@@ -46,7 +46,8 @@ function Test-NeedsKubectl([string]$RelPath) {
 }
 
 function Test-NeedsDocker([string]$RelPath) {
-    return ($RelPath -match '(?i)day1\\(002|007)')
+    # Image builds use CodeBuild (build/modules/ecr-codebuild) — local Docker not required
+    return $false
 }
 
 function Install-KubectlPortable {
