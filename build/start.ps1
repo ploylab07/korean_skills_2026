@@ -116,6 +116,31 @@ function Prompt-Folder {
     }
 }
 
+function Invoke-TerraformRetry {
+    param(
+        [string]$AssignPath,
+        [string[]]$TfArgs,
+        [string]$Label,
+        [int]$MaxAttempts = 5
+    )
+    # Provider download from releases.hashicorp.com can EOF on flaky networks
+    if (-not $env:TF_REGISTRY_CLIENT_TIMEOUT) {
+        $env:TF_REGISTRY_CLIENT_TIMEOUT = "180"
+    }
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        Write-Host ("[{0}] {1} (attempt {2}/{3})" -f $Label, ($TfArgs -join ' '), $attempt, $MaxAttempts) -ForegroundColor Yellow
+        & $TfCmd -chdir="$AssignPath" @TfArgs
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($attempt -ge $MaxAttempts) {
+            throw ("{0} failed after {1} attempts (exit {2})" -f $Label, $MaxAttempts, $LASTEXITCODE)
+        }
+        Write-Warn ("{0} failed - network/provider download? retry in {1}s..." -f $Label, (5 * $attempt))
+        Start-Sleep -Seconds (5 * $attempt)
+    }
+}
+
 function Invoke-Apply([string]$RelPath) {
     Write-Step "5/5 Deploy (apply) - $RelPath"
     $assignPath = Resolve-AssignmentPath $RelPath
@@ -127,8 +152,8 @@ function Invoke-Apply([string]$RelPath) {
         exit 0
     }
 
-    & $TfCmd -chdir="$assignPath" init "-input=false"
-    if ($LASTEXITCODE -ne 0) { throw "terraform init failed" }
+    # init downloads providers - retry on EOF / flaky HashiCorp CDN
+    Invoke-TerraformRetry -AssignPath $assignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 5
 
     & $TfCmd -chdir="$assignPath" validate
     if ($LASTEXITCODE -ne 0) { throw "terraform validate failed" }
