@@ -86,8 +86,6 @@ function Ensure-TerraformBinary {
     # ensure-tf-mirror.ps1 is also loaded by terraform.ps1; call explicitly for clear logs
     . (Join-Path $BuildDir "ensure-tf-mirror.ps1")
     $null = Get-TerraformExe
-    $code = Invoke-RepoTerraform -Chdir $Root -TfArgs @("version")
-    # version with -chdir to repo root may warn; still ok if exe works
     & (Get-TerraformExe) version
     if ($LASTEXITCODE -ne 0) {
         throw "Terraform failed"
