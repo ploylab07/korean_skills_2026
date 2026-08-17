@@ -60,11 +60,47 @@ function Invoke-RepoTerraform {
     $ErrorActionPreference = $prevEap
     if ($null -eq $code) { $code = 0 }
 
-    foreach ($line in @($output)) {
-        Write-Host ([string]$line)
+    $lines = @($output | ForEach-Object { [string]$_ })
+    foreach ($line in $lines) {
+        Write-Host $line
+    }
+
+    # Persist last run for apply-failure diagnosis (wipe/destroy scrolls Error: away)
+    $logPath = Join-Path $BuildDir "last-terraform.log"
+    try {
+        $header = @(
+            ("# {0}" -f (Get-Date -Format "o"))
+            ("# RUN: {0} {1}" -f $exe, ($allArgs -join ' '))
+            ("# exit={0}" -f $code)
+            ""
+        )
+        ($header + $lines) | Set-Content -LiteralPath $logPath -Encoding UTF8
+    }
+    catch {
+        Write-Warn ("could not write {0}: {1}" -f $logPath, $_)
     }
 
     return [int]$code
+}
+
+function Show-LastTerraformErrors {
+    $logPath = Join-Path $BuildDir "last-terraform.log"
+    Write-Host ""
+    Write-Host "======== terraform Error summary ========" -ForegroundColor Red
+    if (-not (Test-Path -LiteralPath $logPath)) {
+        Write-Host "(no build\last-terraform.log yet)" -ForegroundColor Yellow
+        return
+    }
+    $errs = Get-Content -LiteralPath $logPath -ErrorAction SilentlyContinue |
+        Where-Object { $_ -match 'Error:|error:|Failed|failed' }
+    if (-not $errs) {
+        Write-Host "(no Error: lines found — open build\last-terraform.log)" -ForegroundColor Yellow
+    }
+    else {
+        $errs | Select-Object -Last 40 | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+    }
+    Write-Host ("Full log: {0}" -f $logPath) -ForegroundColor Cyan
+    Write-Host "=========================================" -ForegroundColor Red
 }
 
 function Ensure-Prerequisites {
@@ -259,13 +295,14 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve"))
     if ($code -ne 0) {
         Write-Warn "terraform apply failed (exit $code)"
-        Write-Host "Scroll up for lines starting with 'Error:' — paste those if you need help." -ForegroundColor Yellow
+        Show-LastTerraformErrors
+        Write-Host "Paste the Error summary above (or build\last-terraform.log) if you need help." -ForegroundColor Yellow
         Write-Host "Partial resources may remain. Recommended: destroy (+ wskorea26 wipe) then retry." -ForegroundColor Yellow
         $ans = Read-Host "Run terraform destroy now? [Y/n]"
         if ($ans -notmatch '^[Nn]') {
             $null = Invoke-Destroy -AssignPath $AssignPath -RelPath $RelPath
         }
-        throw "terraform apply failed"
+        throw "terraform apply failed — see build\last-terraform.log"
     }
 
     Write-Ok "Deploy done: $RelPath"
