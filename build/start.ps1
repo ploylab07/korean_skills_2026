@@ -277,6 +277,36 @@ function Invoke-TerraformRetry {
     }
 }
 
+function Test-TfStateHas([string]$AssignPath, [string]$Address) {
+    $exe = [string](Get-TerraformExe)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $list = @(& $exe "-chdir=$AssignPath" "state" "list" 2>$null)
+    $ErrorActionPreference = $prev
+    return ($list | ForEach-Object { "$_".Trim() }) -contains $Address
+}
+
+function Invoke-TfImportQuiet {
+    param([string]$AssignPath, [string]$Address, [string]$Id)
+    if (-not $Id) { return }
+    if (Test-TfStateHas -AssignPath $AssignPath -Address $Address) { return }
+    Write-Host ("  import {0}" -f $Address) -ForegroundColor Cyan
+    $null = Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("import", "-input=false", $Address, $Id)
+}
+
+function Import-Day1002Orphans([string]$AssignPath) {
+    Write-Host ">>> Adopt leftover AWS names into terraform state (avoids 409 AlreadyExists)" -ForegroundColor Cyan
+    . (Join-Path $BuildDir "cleanup-wskorea26.ps1")
+    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_function.rewrite" -Id "wskorea26-book-rewrite"
+    $oac = Get-AwsText cloudfront list-origin-access-controls --query "OriginAccessControlList.Items[?Name=='wskorea26-s3-oac'].Id" --output text
+    $oacId = (@($oac -split '\s+') | Where-Object { $_ }) | Select-Object -First 1
+    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_origin_access_control.s3" -Id $oacId
+    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "module.book_image.aws_cloudwatch_log_group.build" -Id "/codebuild/wskorea26-book"
+    $dist = Get-AwsText cloudfront list-distributions --query "DistributionList.Items[?Comment=='wskorea26-concert-cf'].Id" --output text
+    $distId = (@($dist -split '\s+') | Where-Object { $_ }) | Select-Object -First 1
+    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_distribution.main" -Id $distId
+}
+
 function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
     Write-Step "5/5 Deploy (apply) - $RelPath"
 
@@ -290,6 +320,10 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
     }
 
     Invoke-TerraformRetry -AssignPath $AssignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 3
+
+    if ($RelPath -match '(?i)day1\\002') {
+        Import-Day1002Orphans -AssignPath $AssignPath
+    }
 
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("validate"))
     if ($code -ne 0) { throw "terraform validate failed" }
@@ -309,6 +343,9 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
             $retry = Read-Host "Retry apply now? [Y/n]"
             if ($retry -notmatch '^[Nn]') {
                 Write-Host "Retrying apply (init skipped)..." -ForegroundColor Cyan
+                if ($RelPath -match '(?i)day1\\002') {
+                    Import-Day1002Orphans -AssignPath $AssignPath
+                }
                 $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve"))
                 if ($code -eq 0) {
                     Write-Ok "Deploy done: $RelPath"

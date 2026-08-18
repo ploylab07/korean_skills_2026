@@ -65,6 +65,11 @@ resource "aws_s3_object" "source" {
 resource "aws_cloudwatch_log_group" "build" {
   name              = "/codebuild/${var.name_prefix}"
   retention_in_days = 7
+
+  # Previous failed apply can leave this group outside state.
+  lifecycle {
+    ignore_changes = [retention_in_days]
+  }
 }
 
 resource "aws_iam_role" "codebuild" {

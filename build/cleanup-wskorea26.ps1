@@ -133,7 +133,11 @@ function Clear-Wskorea26Leftovers {
         Start-Sleep -Seconds 3
         $null = Invoke-AwsQuiet dynamodb delete-table --table-name wskorea26-data-table
         $null = Invoke-AwsQuiet ecr delete-repository --repository-name wskorea26-book-repo --force
-        $null = Invoke-AwsQuiet codebuild delete-project --name wskorea26-book
+        $null = Invoke-AwsQuiet logs delete-log-group --log-group-name /codebuild/wskorea26-book
+        foreach ($lg in (Get-AwsTokens logs describe-log-groups --log-group-name-prefix "/codebuild/wskorea26" --query "logGroups[].logGroupName" --output text)) {
+            Write-Host "  delete log group $lg"
+            $null = Invoke-AwsQuiet logs delete-log-group --log-group-name $lg
+        }
 
         foreach ($b in (Get-AwsTokens s3api list-buckets --query "Buckets[?contains(Name, 'wskorea26')].Name" --output text)) {
             Write-Host "  delete bucket $b"

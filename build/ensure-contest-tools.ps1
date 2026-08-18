@@ -37,17 +37,17 @@ function Publish-TerraformBinDir {
     )
     New-Item -ItemType Directory -Force -Path $script:ContestToolsBinDir | Out-Null
 
-    if ($AwsPath -and (Test-Path -LiteralPath $AwsPath)) {
-        $dest = Join-Path $script:ContestToolsBinDir "aws.exe"
-        if (-not (Test-Path -LiteralPath $dest)) {
-            try {
-                New-Item -ItemType HardLink -Path $dest -Target $AwsPath -Force -ErrorAction Stop | Out-Null
-            }
-            catch {
-                Copy-Item -LiteralPath $AwsPath -Destination $dest -Force
-            }
-        }
+    # AWS CLI v2 is not a standalone exe. Copying/hardlinking aws.exe into build\.bin
+    # makes kubernetes/helm exec fail with exit 4294967295 (-1).
+    $stub = Join-Path $script:ContestToolsBinDir "aws.exe"
+    if (Test-Path -LiteralPath $stub) {
+        Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue
+        Write-Host "[OK] removed broken build\.bin\aws.exe stub" -ForegroundColor Yellow
     }
+    if ($AwsPath -and (Test-Path -LiteralPath $AwsPath)) {
+        Add-PathDir (Split-Path -Parent $AwsPath)
+    }
+
     if ($KubectlPath -and (Test-Path -LiteralPath $KubectlPath)) {
         $dest = Join-Path $script:ContestToolsBinDir "kubectl.exe"
         if (-not (Test-Path -LiteralPath $dest)) {
@@ -60,6 +60,10 @@ function Publish-TerraformBinDir {
         }
     }
     Add-PathDir $script:ContestToolsBinDir
+    # AWS CLI dir must win over build\.bin (no stub aws.exe there)
+    if ($AwsPath -and (Test-Path -LiteralPath $AwsPath)) {
+        Add-PathDir (Split-Path -Parent $AwsPath)
+    }
 }
 
 function Refresh-ProcessPath {
@@ -308,6 +312,7 @@ function Ensure-ContestTools {
     }
 
     Publish-TerraformBinDir -AwsPath $t.Aws -KubectlPath $t.Kubectl
+    Add-PathDir (Split-Path -Parent $t.Aws)
 
     Write-Host ("[OK] aws={0}" -f $t.Aws) -ForegroundColor Green
     if ($t.NeedKubectl) { Write-Host ("[OK] kubectl={0}" -f $t.Kubectl) -ForegroundColor Green }
