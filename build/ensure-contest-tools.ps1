@@ -62,6 +62,7 @@ function Publish-TerraformBinDir {
     Add-PathDir $script:ContestToolsBinDir
 }
 
+function Refresh-ProcessPath {
     $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
     $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
     $env:PATH = "$machine;$user"
