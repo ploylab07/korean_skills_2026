@@ -306,6 +306,16 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
         $ans = Read-Host "Run terraform destroy now? [Y/n]"
         if ($ans -notmatch '^[Nn]') {
             $null = Invoke-Destroy -AssignPath $AssignPath -RelPath $RelPath
+            $retry = Read-Host "Retry apply now? [Y/n]"
+            if ($retry -notmatch '^[Nn]') {
+                Write-Host "Retrying apply (init skipped)..." -ForegroundColor Cyan
+                $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve"))
+                if ($code -eq 0) {
+                    Write-Ok "Deploy done: $RelPath"
+                    return $true
+                }
+                Show-LastTerraformErrors
+            }
         }
         throw "terraform apply failed — see build\last-terraform.log"
     }
@@ -316,6 +326,11 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
 
 function Invoke-Assignment([string]$RelPath) {
     Write-Step "5/5 Assignment - $RelPath"
+    if ($Root -match 'korean_skills_2026-master') {
+        Write-Warn "GitHub ZIP folder detected (korean_skills_2026-master). Fixes may be missing."
+        Write-Host "  Use: git clone https://github.com/ploylab07/korean_skills_2026.git" -ForegroundColor Yellow
+        Write-Host "  Then: git pull origin master" -ForegroundColor Yellow
+    }
     $assignPath = Resolve-AssignmentPath $RelPath
 
     . (Join-Path $BuildDir "ensure-contest-tools.ps1")

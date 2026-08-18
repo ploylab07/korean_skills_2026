@@ -3,6 +3,8 @@
 
 prometheusOperator:
   enabled: true
+  tls:
+    enabled: false
   admissionWebhooks:
     enabled: false
     patch:
@@ -18,9 +20,7 @@ prometheus:
   prometheusSpec:
     nodeSelector:
       node-type: addon
-    image:
-      registry: public.ecr.aws
-      repository: prometheus/prometheus
+    # Chart default is quay.io/prometheus/prometheus — public.ecr.aws/prometheus/* does not exist
     retention: 7d
 
 alertmanager:
@@ -49,6 +49,3 @@ prometheus-node-exporter:
     node-type: addon
   # Do NOT tolerate app taints — monitoring stays on addon NG
   tolerations: []
-  image:
-    registry: public.ecr.aws
-    repository: prometheus/node-exporter

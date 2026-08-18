@@ -172,7 +172,9 @@ resource "helm_release" "kube_prometheus_stack" {
   name      = "kps"
   chart     = local.prometheus_chart
   namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
-  timeout   = 900
+  timeout   = 1200
+  wait      = true
+  atomic    = false
 
   # EKS manages the control plane; unicorn=addon-only components probe it via
   # the standard k8s API service, but etcd/scheduler/controller-manager are
@@ -191,6 +193,7 @@ resource "helm_release" "kube_prometheus_stack" {
     { name = "prometheusOperator.nodeSelector.unicorn", value = "addon" },
     { name = "prometheusOperator.admissionWebhooks.enabled", value = "false" },
     { name = "prometheusOperator.admissionWebhooks.patch.enabled", value = "false" },
+    { name = "prometheusOperator.tls.enabled", value = "false" },
     # CloudWatch datasource for the "Book App HTTP Request Duration" panel
     # (ALB TargetResponseTime). Grafana runs on the addon node, so it reads
     # via the node IAM role (cloudwatch:GetMetricData/ListMetrics, see iam.tf).

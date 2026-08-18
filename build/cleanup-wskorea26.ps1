@@ -141,6 +141,38 @@ function Clear-Wskorea26Leftovers {
             $null = Invoke-AwsQuiet s3api delete-bucket --bucket $b
         }
 
+        foreach ($distId in (Get-AwsTokens cloudfront list-distributions --query "DistributionList.Items[?Comment=='wskorea26-concert-cf'].Id" --output text)) {
+            Write-Host "  disable/delete CloudFront $distId"
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            $raw = & aws cloudfront get-distribution-config --id $distId --output json 2>$null
+            $ErrorActionPreference = $prev
+            if (-not $raw) { continue }
+            try {
+                $obj = $raw | ConvertFrom-Json
+                $etag = [string]$obj.ETag
+                if ($obj.DistributionConfig.Enabled) {
+                    $obj.DistributionConfig.Enabled = $false
+                    $cfgFile = Join-Path $env:TEMP ("wskorea26-cf-{0}.json" -f $distId)
+                    ($obj.DistributionConfig | ConvertTo-Json -Depth 25) | Set-Content -Encoding utf8 $cfgFile
+                    $cfgUri = "file://" + ($cfgFile -replace '\\', '/')
+                    $null = Invoke-AwsQuiet cloudfront update-distribution --id $distId --if-match $etag --distribution-config $cfgUri
+                    for ($i = 0; $i -lt 60; $i++) {
+                        $st = Get-AwsText cloudfront get-distribution --id $distId --query "Distribution.Status" --output text
+                        if ($st -eq "Deployed") { break }
+                        Start-Sleep -Seconds 10
+                    }
+                    $etag = Get-AwsText cloudfront get-distribution-config --id $distId --query ETag --output text
+                }
+                if ($etag) {
+                    $null = Invoke-AwsQuiet cloudfront delete-distribution --id $distId --if-match $etag
+                }
+            }
+            catch {
+                Write-Host ("    CloudFront delete skipped: {0}" -f $_) -ForegroundColor Yellow
+            }
+        }
+
         $oac = Get-AwsText cloudfront list-origin-access-controls --query "OriginAccessControlList.Items[?Name=='wskorea26-s3-oac'].Id" --output text
         if ($oac) {
             $etag = Get-AwsText cloudfront get-origin-access-control --id $oac --query ETag --output text

@@ -1,0 +1,22 @@
+---
+description: kube-prometheus-stack Helm: disable TLS when webhooks off; do not use nonexistent public.ecr.aws image paths
+
+alwaysApply: true
+---
+
+# helm kps tls
+
+# kube-prometheus-stack Helm (day1/002, day1/007)
+
+Apply 가 `helm_release.kube_prometheus_stack` 에서 `context deadline exceeded` 로 실패하면 아래를 먼저 본다.
+
+## 금지
+
+- `prometheusOperator.admissionWebhooks.enabled=false` 만 하고 `prometheusOperator.tls.enabled` 를 그대로 두면 operator 가 `*-admission` TLS 시크릿을 영원히 기다린다.
+- `public.ecr.aws/prometheus/node-exporter` 같은 **존재하지 않는** public ECR 경로로 quay.io 를 대체하지 않는다. (ImagePullBackOff → Helm wait timeout)
+
+## 필수
+
+- webhook 비활성 시 `prometheusOperator.tls.enabled = false`
+- node-exporter / prometheus 이미지는 차트 기본(`quay.io/prometheus/...`) 또는 실제 존재하는 레지스트리만 사용
+- `timeout` 은 1200s 이상, `atomic = false` (timeout 시 릴리스 롤백으로 Grafana까지 날리지 않음)

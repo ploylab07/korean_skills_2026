@@ -20,7 +20,8 @@ locals {
   local_exec_interpreter   = local.is_windows ? ["bash", "-c"] : ["/bin/bash", "-c"]
   module_posix             = replace(abspath(path.module), "\\", "/")
   terraform_bin            = replace(abspath("${path.module}/../../build/.bin"), "\\", "/")
-  aws_exec_cmd             = local.is_windows ? "${local.terraform_bin}/aws.exe" : "aws"
+  aws_bin                  = "${local.terraform_bin}/aws.exe"
+  aws_exec_cmd             = local.is_windows && fileexists(local.aws_bin) ? local.aws_bin : (local.is_windows ? "aws.exe" : "aws")
   prometheus_chart         = replace(abspath("${path.module}/charts/kube-prometheus-stack-66.2.1.tgz"), "\\", "/")
 }
 

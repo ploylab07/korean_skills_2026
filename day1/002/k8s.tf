@@ -97,7 +97,9 @@ resource "helm_release" "kube_prometheus_stack" {
   name      = "kps"
   chart     = local.prometheus_chart
   namespace = kubernetes_namespace.monitoring.metadata[0].name
-  timeout   = 900
+  timeout   = 1200
+  wait      = true
+  atomic    = false
   values    = [file("${path.module}/k8s/monitoring/values.yaml")]
 
   set {
@@ -140,8 +142,12 @@ resource "helm_release" "kube_prometheus_stack" {
     name  = "prometheusOperator.admissionWebhooks.patch.enabled"
     value = "false"
   }
+  # admission webhook 비활성 시 TLS 시크릿이 안 만들어짐 → operator 가 tls-secret mount 로 영원히 Pending
+  set {
+    name  = "prometheusOperator.tls.enabled"
+    value = "false"
+  }
   # Monitoring 10-x: Prometheus 필수 (패널 메트릭 없으면 수동 채점 감점)
-  # quay.io 타임아웃 회피
   set {
     name  = "prometheusOperator.enabled"
     value = "true"
@@ -159,14 +165,6 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "true"
   }
   set {
-    name  = "prometheus.prometheusSpec.image.registry"
-    value = "public.ecr.aws"
-  }
-  set {
-    name  = "prometheus.prometheusSpec.image.repository"
-    value = "prometheus/prometheus"
-  }
-  set {
     name  = "alertmanager.enabled"
     value = "false"
   }
@@ -181,14 +179,6 @@ resource "helm_release" "kube_prometheus_stack" {
   set {
     name  = "prometheus-node-exporter.nodeSelector.node-type"
     value = "addon"
-  }
-  set {
-    name  = "prometheus-node-exporter.image.registry"
-    value = "public.ecr.aws"
-  }
-  set {
-    name  = "prometheus-node-exporter.image.repository"
-    value = "prometheus/node-exporter"
   }
   set {
     name  = "grafana.service.type"
