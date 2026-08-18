@@ -209,11 +209,12 @@ else
   bad 1.5 "9-1 Application POST"
 fi
 
-# 9-2 GET 1.5 — ALB GET → Lambda + KST sort
+# 9-2 GET 1.5 — ALB GET → Lambda + KST sort + POST field order
 if has "$ROOT/alb.tf" 'aws_lb_target_group.lambda' \
   && grep -A25 'get_book' "$ROOT/alb.tf" | grep -q 'GET' \
   && has "$ROOT/lambda/lambda_function.py" 'ScanIndexForward=False' \
-  && has "$ROOT/lambda/lambda_function.py" 'timedelta\(hours=9\)'; then
+  && has "$ROOT/lambda/lambda_function.py" 'timedelta\(hours=9\)' \
+  && has "$ROOT/lambda/lambda_function.py" 'client_id.*username.*email.*concert_name.*created_at'; then
   ok 1.5 "9-2 Application GET"
 else
   bad 1.5 "9-2 Application GET"

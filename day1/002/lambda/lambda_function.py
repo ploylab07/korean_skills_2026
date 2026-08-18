@@ -1,9 +1,13 @@
 import json
 import os
+from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
 import boto3
 from boto3.dynamodb.conditions import Key
 from decimal import Decimal
+
+# 9-2-A 채점: POST 바디와 같은 키 순서
+ITEM_FIELDS = ("client_id", "username", "email", "concert_name", "created_at")
 
 TABLE_NAME = os.environ["TABLE_NAME"]
 INDEX_NAME = os.environ.get("INDEX_NAME", "concert_name-created_at-index")
@@ -55,7 +59,13 @@ def lambda_handler(event, context):
     )
     items = []
     for item in result.get("Items", []):
-        if "created_at" in item:
-            item["created_at"] = to_kst(item["created_at"])
-        items.append(item)
+        ordered = OrderedDict()
+        for field in ITEM_FIELDS:
+            if field not in item:
+                continue
+            value = item[field]
+            if field == "created_at":
+                value = to_kst(value)
+            ordered[field] = value
+        items.append(ordered)
     return _response(200, items)
