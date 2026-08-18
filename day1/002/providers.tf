@@ -14,7 +14,7 @@ provider "kubernetes" {
 
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
+    command     = local.aws_exec_cmd
     args = [
       "eks", "get-token",
       "--cluster-name", aws_eks_cluster.main.name,
@@ -31,7 +31,7 @@ provider "helm" {
 
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
+      command     = local.aws_exec_cmd
       args = [
         "eks", "get-token",
         "--cluster-name", aws_eks_cluster.main.name,

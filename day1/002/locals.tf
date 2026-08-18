@@ -16,8 +16,12 @@ locals {
 
   # Windows home is like C:\Users\... (2nd char ':'); Linux is /home/...
   # Use `bash` on PATH (Git for Windows). Avoid hard-coded /bin/bash.
-  local_exec_interpreter = substr(pathexpand("~"), 1, 1) == ":" ? ["bash", "-c"] : ["/bin/bash", "-c"]
-  module_posix           = replace(abspath(path.module), "\\", "/")
+  is_windows               = substr(pathexpand("~"), 1, 1) == ":"
+  local_exec_interpreter   = local.is_windows ? ["bash", "-c"] : ["/bin/bash", "-c"]
+  module_posix             = replace(abspath(path.module), "\\", "/")
+  terraform_bin            = replace(abspath("${path.module}/../../build/.bin"), "\\", "/")
+  aws_exec_cmd             = local.is_windows ? "${local.terraform_bin}/aws.exe" : "aws"
+  prometheus_chart         = replace(abspath("${path.module}/charts/kube-prometheus-stack-66.2.1.tgz"), "\\", "/")
 }
 
 data "aws_caller_identity" "current" {}

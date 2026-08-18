@@ -99,6 +99,11 @@ function Show-LastTerraformErrors {
     else {
         $errs | Select-Object -Last 40 | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
     }
+    Write-Host ""
+    Write-Host "--- last 35 log lines ---" -ForegroundColor DarkGray
+    Get-Content -LiteralPath $logPath -ErrorAction SilentlyContinue |
+        Select-Object -Last 35 |
+        ForEach-Object { Write-Host $_ }
     Write-Host ("Full log: {0}" -f $logPath) -ForegroundColor Cyan
     Write-Host "=========================================" -ForegroundColor Red
 }

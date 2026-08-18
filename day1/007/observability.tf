@@ -170,7 +170,7 @@ resource "kubernetes_daemon_set_v1" "fluent_bit" {
 # --- kube-prometheus-stack (Prometheus + Grafana), addon nodes only ---
 resource "helm_release" "kube_prometheus_stack" {
   name      = "kps"
-  chart     = "${path.module}/charts/kube-prometheus-stack-66.2.1.tgz"
+  chart     = local.prometheus_chart
   namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
   timeout   = 900
 

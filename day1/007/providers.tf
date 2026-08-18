@@ -29,6 +29,11 @@ locals {
     Project = "unicorn"
     Bib     = local.bib
   }
+
+  is_windows     = substr(pathexpand("~"), 1, 1) == ":"
+  terraform_bin  = replace(abspath("${path.module}/../../build/.bin"), "\\", "/")
+  aws_exec_cmd   = local.is_windows ? "${local.terraform_bin}/aws.exe" : "aws"
+  prometheus_chart = replace(abspath("${path.module}/charts/kube-prometheus-stack-66.2.1.tgz"), "\\", "/")
 }
 
 # Kubernetes / Helm providers talk to the cluster using a short-lived exec
@@ -39,7 +44,7 @@ provider "kubernetes" {
 
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
+    command     = local.aws_exec_cmd
     args        = ["eks", "get-token", "--cluster-name", local.cluster_name, "--region", local.region]
   }
 }
@@ -51,7 +56,7 @@ provider "helm" {
 
     exec = {
       api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
+      command     = local.aws_exec_cmd
       args        = ["eks", "get-token", "--cluster-name", local.cluster_name, "--region", local.region]
     }
   }

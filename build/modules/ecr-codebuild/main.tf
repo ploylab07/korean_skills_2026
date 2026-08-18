@@ -2,6 +2,10 @@ locals {
   bucket_name = lower(substr(replace("${var.name_prefix}-cb-${var.account_id}", "_", "-"), 0, 63))
   tags_csv    = join(",", var.image_tags)
 
+  # Windows: pathexpand("~") is C:\Users\... ; use PowerShell waiter (no Git bash required).
+  is_windows  = substr(pathexpand("~"), 1, 1) == ":"
+  wait_script = local.is_windows ? replace(abspath("${path.module}/wait-codebuild.ps1"), "\\", "/") : replace(abspath("${path.module}/wait-codebuild.sh"), "\\", "/")
+
   buildspec = <<-EOF
     version: 0.2
     phases:
@@ -196,7 +200,7 @@ resource "aws_codebuild_project" "image" {
   depends_on = [aws_iam_role_policy.codebuild]
 }
 
-# Trigger build and wait (needs aws CLI + bash on the contest machine — not Docker)
+# Trigger build and wait (needs aws CLI on the contest machine — not Docker)
 resource "null_resource" "run_build" {
   triggers = {
     source_md5 = data.archive_file.source.output_md5
@@ -206,31 +210,13 @@ resource "null_resource" "run_build" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["bash", "-c"]
-    command     = <<-EOT
-      set -euo pipefail
-      PROJECT="${aws_codebuild_project.image.name}"
-      REGION="${var.region}"
-      echo "Starting CodeBuild: $PROJECT"
-      BUILD_ID=$(aws codebuild start-build --region "$REGION" --project-name "$PROJECT" --query 'build.id' --output text)
-      echo "Build id: $BUILD_ID"
-      for i in $(seq 1 90); do
-        STATUS=$(aws codebuild batch-get-builds --region "$REGION" --ids "$BUILD_ID" --query 'builds[0].buildStatus' --output text)
-        PHASE=$(aws codebuild batch-get-builds --region "$REGION" --ids "$BUILD_ID" --query 'builds[0].currentPhase' --output text)
-        echo "[$i] status=$STATUS phase=$PHASE"
-        case "$STATUS" in
-          SUCCEEDED) echo "CodeBuild SUCCEEDED"; exit 0 ;;
-          FAILED|FAULT|STOPPED|TIMED_OUT)
-            echo "CodeBuild failed: $STATUS"
-            aws codebuild batch-get-builds --region "$REGION" --ids "$BUILD_ID" --query 'builds[0].phases' --output json || true
-            exit 1
-            ;;
-        esac
-        sleep 10
-      done
-      echo "Timed out waiting for CodeBuild"
-      exit 1
-    EOT
+    interpreter = local.is_windows ? ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"] : ["bash"]
+    command     = local.wait_script
+    environment = {
+      TF_CB_PROJECT      = aws_codebuild_project.image.name
+      TF_CB_REGION       = var.region
+      AWS_DEFAULT_REGION = var.region
+    }
   }
 
   depends_on = [

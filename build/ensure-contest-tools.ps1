@@ -30,7 +30,38 @@ function Add-PathDir([string]$Dir) {
     $env:PATH = "$Dir;" + $env:PATH
 }
 
-function Refresh-ProcessPath {
+function Publish-TerraformBinDir {
+    param(
+        [string]$AwsPath,
+        [string]$KubectlPath
+    )
+    New-Item -ItemType Directory -Force -Path $script:ContestToolsBinDir | Out-Null
+
+    if ($AwsPath -and (Test-Path -LiteralPath $AwsPath)) {
+        $dest = Join-Path $script:ContestToolsBinDir "aws.exe"
+        if (-not (Test-Path -LiteralPath $dest)) {
+            try {
+                New-Item -ItemType HardLink -Path $dest -Target $AwsPath -Force -ErrorAction Stop | Out-Null
+            }
+            catch {
+                Copy-Item -LiteralPath $AwsPath -Destination $dest -Force
+            }
+        }
+    }
+    if ($KubectlPath -and (Test-Path -LiteralPath $KubectlPath)) {
+        $dest = Join-Path $script:ContestToolsBinDir "kubectl.exe"
+        if (-not (Test-Path -LiteralPath $dest)) {
+            try {
+                New-Item -ItemType HardLink -Path $dest -Target $KubectlPath -Force -ErrorAction Stop | Out-Null
+            }
+            catch {
+                Copy-Item -LiteralPath $KubectlPath -Destination $dest -Force
+            }
+        }
+    }
+    Add-PathDir $script:ContestToolsBinDir
+}
+
     $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
     $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
     $env:PATH = "$machine;$user"
@@ -274,6 +305,8 @@ function Ensure-ContestTools {
         $gitBin = Join-Path ${env:ProgramFiles} "Git\bin"
         if (Test-Path -LiteralPath $gitBin) { Add-PathDir $gitBin }
     }
+
+    Publish-TerraformBinDir -AwsPath $t.Aws -KubectlPath $t.Kubectl
 
     Write-Host ("[OK] aws={0}" -f $t.Aws) -ForegroundColor Green
     if ($t.NeedKubectl) { Write-Host ("[OK] kubectl={0}" -f $t.Kubectl) -ForegroundColor Green }
