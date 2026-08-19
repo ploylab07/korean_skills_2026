@@ -75,7 +75,21 @@ locals {
     Resource  = "*"
     Condition = {
       StringEquals = {
-        "kms:CallerAccount" = local.account_id
+        "kms:CallerAccount"     = local.account_id
+        "aws:PrincipalAccount"  = local.account_id
+      }
+    }
+  }
+
+  kms_account_decrypt_statement = {
+    Sid       = "AllowAccountDecryptPlaintext"
+    Effect    = "Allow"
+    Principal = "*"
+    Action    = ["kms:Decrypt", "kms:DescribeKey", "kms:GenerateDataKey", "kms:CreateGrant"]
+    Resource  = "*"
+    Condition = {
+      StringEquals = {
+        "aws:PrincipalAccount" = local.account_id
       }
     }
   }
@@ -99,6 +113,7 @@ resource "aws_kms_key" "db" {
     Version = "2012-10-17"
     Statement = [
       local.kms_account_admin_statement,
+      local.kms_account_decrypt_statement,
       local.kms_admin_role_statement,
       {
         Sid       = "AllowDynamoDBUse"
@@ -139,6 +154,7 @@ resource "aws_kms_key" "ecr" {
     Version = "2012-10-17"
     Statement = [
       local.kms_account_admin_statement,
+      local.kms_account_decrypt_statement,
       local.kms_admin_role_statement,
       {
         Sid       = "AllowECRUse"
@@ -165,6 +181,7 @@ resource "aws_kms_key" "eks" {
     Version = "2012-10-17"
     Statement = [
       local.kms_account_admin_statement,
+      local.kms_account_decrypt_statement,
       local.kms_admin_role_statement,
       {
         Sid       = "AllowEKSUse"
@@ -190,6 +207,7 @@ resource "aws_kms_key" "bucket" {
     Version = "2012-10-17"
     Statement = [
       local.kms_account_admin_statement,
+      local.kms_account_decrypt_statement,
       local.kms_admin_role_statement,
       {
         Sid       = "AllowS3Use"
@@ -223,6 +241,7 @@ resource "aws_kms_key" "function" {
     Version = "2012-10-17"
     Statement = [
       local.kms_account_admin_statement,
+      local.kms_account_decrypt_statement,
       local.kms_admin_role_statement,
       {
         Sid       = "AllowLambdaUse"

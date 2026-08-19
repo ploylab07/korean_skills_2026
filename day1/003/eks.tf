@@ -10,6 +10,11 @@ resource "aws_eks_cluster" "main" {
     endpoint_public_access = false
   }
 
+  access_config {
+    authentication_mode                         = "API"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   enabled_cluster_log_types = [
     "api",
     "audit",
@@ -65,7 +70,7 @@ resource "aws_eks_addon" "coredns" {
               lameduck 5s
             }
           ready
-          kubernetes wsc2026.skills.local in-addr.arpa ip6.arpa {
+          kubernetes wsc2026.skills.local cluster.local in-addr.arpa ip6.arpa {
             pods insecure
             fallthrough in-addr.arpa ip6.arpa
           }
@@ -197,4 +202,22 @@ resource "aws_eks_pod_identity_association" "book" {
   role_arn        = aws_iam_role.book_pod.arn
 
   depends_on = [aws_eks_addon.pod_identity]
+}
+
+resource "aws_eks_access_entry" "bastion" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_iam_role.bastion.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "bastion" {
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_iam_role.bastion.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.bastion]
 }

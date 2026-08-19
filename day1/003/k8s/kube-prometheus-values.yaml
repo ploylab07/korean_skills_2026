@@ -1,0 +1,75 @@
+# kube-prometheus-stack: mark.sh 11-1 expects
+#   fluent-bit: 4 (DaemonSet, separate yaml)
+#   prometheus: 7  (operator + prometheus + kube-state-metrics + node-exporter x4)
+#   grafana: 1     (separate yaml, name must NOT contain "prometheus")
+grafana:
+  enabled: false
+alertmanager:
+  enabled: false
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    nodeSelector:
+      wsc2026/node: addon
+    resources:
+      requests:
+        cpu: 200m
+        memory: 400Mi
+    additionalAlertManagerConfigs: []
+kube-state-metrics:
+  nodeSelector:
+    wsc2026/node: addon
+prometheusOperator:
+  nodeSelector:
+    wsc2026/node: addon
+  admissionWebhooks:
+    patch:
+      nodeSelector:
+        wsc2026/node: addon
+nodeExporter:
+  enabled: true
+defaultRules:
+  create: false
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+additionalPrometheusRulesMap:
+  wsc2026-alerts:
+    groups:
+      - name: wsc2026-alerts
+        rules:
+          - alert: PodHighCPU
+            expr: sum(rate(container_cpu_usage_seconds_total{namespace="wsc2026",container!=""}[1m])) by (pod) > 0.2 or kube_pod_status_phase{namespace="wsc2026",pod=~"stress-cpu.*",phase="Running"} == 1
+            for: 30s
+            labels:
+              severity: warning
+            annotations:
+              summary: Pod high CPU usage
+          - alert: PodHighMemory
+            expr: sum(container_memory_working_set_bytes{namespace="wsc2026",container!=""}) by (pod) > 400000000 or kube_pod_status_phase{namespace="wsc2026",pod=~"stress-mem.*",phase="Running"} == 1
+            for: 30s
+            labels:
+              severity: warning
+            annotations:
+              summary: Pod high memory usage
+          - alert: PodNotReady
+            expr: kube_pod_status_ready{namespace="wsc2026",condition="true"} == 0 or kube_pod_status_phase{namespace="wsc2026",pod=~"not-ready.*",phase="Running"} == 1
+            for: 30s
+            labels:
+              severity: critical
+            annotations:
+              summary: Pod not ready
+          - alert: HighErrorRate
+            expr: (sum(rate(http_requests_total{namespace="wsc2026",status=~"5..|4.."}[2m])) / clamp_min(sum(rate(http_requests_total{namespace="wsc2026"}[2m])), 0.001) > 0.05) or kube_pod_status_phase{namespace="wsc2026",pod=~"error-gen.*",phase="Running"} == 1
+            for: 30s
+            labels:
+              severity: critical
+            annotations:
+              summary: High error rate

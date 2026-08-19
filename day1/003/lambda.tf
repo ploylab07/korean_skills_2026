@@ -39,3 +39,11 @@ resource "aws_lambda_function_url" "book_get" {
     allow_origins = ["*"]
   }
 }
+
+resource "aws_lambda_permission" "book_get_url" {
+  statement_id           = "FunctionURLAllowPublicAccess"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.book_get.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}

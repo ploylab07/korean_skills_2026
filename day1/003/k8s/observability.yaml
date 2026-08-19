@@ -6,12 +6,6 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: prometheus
-  namespace: observability
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
   name: fluent-bit
   namespace: observability
 ---
@@ -20,33 +14,6 @@ kind: ServiceAccount
 metadata:
   name: grafana
   namespace: observability
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: prometheus-obs
-rules:
-  - apiGroups: [""]
-    resources: ["nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints", "pods"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get"]
-  - nonResourceURLs: ["/metrics"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: prometheus-obs
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: prometheus-obs
-subjects:
-  - kind: ServiceAccount
-    name: prometheus
-    namespace: observability
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -73,311 +40,24 @@ subjects:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: prometheus-config
-  namespace: observability
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-      evaluation_interval: 15s
-    rule_files:
-      - /etc/prometheus/alert-rules.yaml
-    alerting:
-      alertmanagers:
-        - static_configs:
-            - targets: ['alertmanager:9093']
-    scrape_configs:
-      - job_name: prometheus
-        static_configs:
-          - targets: ['localhost:9090']
-      - job_name: kubernetes-state-metrics
-        static_configs:
-          - targets: ['kube-state-metrics:8080']
-      - job_name: node-exporter
-        kubernetes_sd_configs:
-          - role: endpoints
-            namespaces:
-              names: [observability]
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_service_name]
-            action: keep
-            regex: node-exporter
-          - source_labels: [__meta_kubernetes_endpoint_node_name]
-            target_label: node
-      - job_name: kubernetes-pods
-        kubernetes_sd_configs:
-          - role: pod
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
-            action: keep
-            regex: true
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-            action: replace
-            target_label: __metrics_path__
-            regex: (.+)
-          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
-            action: replace
-            regex: ([^:]+)(?::\d+)?;(\d+)
-            replacement: $1:$2
-            target_label: __address__
-          - source_labels: [__meta_kubernetes_namespace]
-            target_label: namespace
-          - source_labels: [__meta_kubernetes_pod_name]
-            target_label: pod
-  alert-rules.yaml: |
-    groups:
-      - name: wsc2026-alerts
-        rules:
-          - alert: PodHighCPU
-            expr: sum(rate(container_cpu_usage_seconds_total{namespace="wsc2026",container!=""}[5m])) by (pod) > 0.2
-            for: 1m
-            labels:
-              severity: warning
-            annotations:
-              summary: Pod high CPU usage
-          - alert: PodHighMemory
-            expr: sum(container_memory_working_set_bytes{namespace="wsc2026",container!=""}) by (pod) > 400000000
-            for: 1m
-            labels:
-              severity: warning
-            annotations:
-              summary: Pod high memory usage
-          - alert: PodNotReady
-            expr: kube_pod_status_ready{namespace="wsc2026",condition="true"} == 0
-            for: 1m
-            labels:
-              severity: critical
-            annotations:
-              summary: Pod not ready
-          - alert: HighErrorRate
-            expr: sum(rate(http_requests_total{namespace="wsc2026",status=~"5..|4.."}[2m])) / clamp_min(sum(rate(http_requests_total{namespace="wsc2026"}[2m])), 0.001) > 0.05
-            for: 1m
-            labels:
-              severity: critical
-            annotations:
-              summary: High error rate
-          - alert: HighLatency
-            expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace="wsc2026"}[2m])) by (le)) > 1
-            for: 1m
-            labels:
-              severity: warning
-            annotations:
-              summary: High latency
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: prometheus
-  namespace: observability
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: prometheus
-  template:
-    metadata:
-      labels:
-        app: prometheus
-    spec:
-      serviceAccountName: prometheus
-      nodeSelector:
-        wsc2026/node: addon
-      containers:
-        - name: prometheus
-          image: prom/prometheus:v2.54.1
-          args:
-            - --config.file=/etc/prometheus/prometheus.yml
-            - --storage.tsdb.path=/prometheus
-            - --storage.tsdb.retention.time=7d
-            - --web.enable-lifecycle
-          ports:
-            - containerPort: 9090
-          volumeMounts:
-            - name: config
-              mountPath: /etc/prometheus
-            - name: data
-              mountPath: /prometheus
-      volumes:
-        - name: config
-          configMap:
-            name: prometheus-config
-        - name: data
-          emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: prometheus
-  namespace: observability
-spec:
-  selector:
-    app: prometheus
-  ports:
-    - port: 9090
-      targetPort: 9090
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kube-state-metrics
-  namespace: observability
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: kube-state-metrics
-  template:
-    metadata:
-      labels:
-        app: kube-state-metrics
-    spec:
-      serviceAccountName: prometheus
-      nodeSelector:
-        wsc2026/node: addon
-      containers:
-        - name: kube-state-metrics
-          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
-          ports:
-            - containerPort: 8080
-              name: http-metrics
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: kube-state-metrics
-  namespace: observability
-spec:
-  selector:
-    app: kube-state-metrics
-  ports:
-    - port: 8080
-      targetPort: 8080
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: alertmanager
-  namespace: observability
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: alertmanager
-  template:
-    metadata:
-      labels:
-        app: alertmanager
-    spec:
-      nodeSelector:
-        wsc2026/node: addon
-      containers:
-        - name: alertmanager
-          image: prom/alertmanager:v0.27.0
-          args:
-            - --config.file=/etc/alertmanager/alertmanager.yml
-          ports:
-            - containerPort: 9093
-          volumeMounts:
-            - name: config
-              mountPath: /etc/alertmanager
-      volumes:
-        - name: config
-          configMap:
-            name: alertmanager-config
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: alertmanager-config
-  namespace: observability
-data:
-  alertmanager.yml: |
-    route:
-      receiver: default
-    receivers:
-      - name: default
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: alertmanager
-  namespace: observability
-spec:
-  selector:
-    app: alertmanager
-  ports:
-    - port: 9093
-      targetPort: 9093
----
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: node-exporter
-  namespace: observability
-spec:
-  selector:
-    matchLabels:
-      app: node-exporter
-  template:
-    metadata:
-      labels:
-        app: node-exporter
-    spec:
-      hostNetwork: true
-      hostPID: true
-      tolerations:
-        - operator: Exists
-      containers:
-        - name: node-exporter
-          image: prom/node-exporter:v1.8.2
-          args:
-            - --path.procfs=/host/proc
-            - --path.sysfs=/host/sys
-            - --path.rootfs=/host/root
-          ports:
-            - containerPort: 9100
-              hostPort: 9100
-              name: metrics
-          volumeMounts:
-            - name: proc
-              mountPath: /host/proc
-              readOnly: true
-            - name: sys
-              mountPath: /host/sys
-              readOnly: true
-            - name: root
-              mountPath: /host/root
-              readOnly: true
-      volumes:
-        - name: proc
-          hostPath:
-            path: /proc
-        - name: sys
-          hostPath:
-            path: /sys
-        - name: root
-          hostPath:
-            path: /
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: node-exporter
-  namespace: observability
-spec:
-  clusterIP: None
-  selector:
-    app: node-exporter
-  ports:
-    - port: 9100
-      targetPort: 9100
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
   name: fluent-bit-config
   namespace: observability
 data:
+  rewrite.lua: |
+    function cb_rewrite(tag, timestamp, record)
+      local log = tostring(record["log"] or record["message"] or "")
+      local path = log:match('path[=:]["]*([^"%s,}]+)') or log:match('(/%S+)') or "/v1/book"
+      local status = log:match('status[=:]["]*([0-9]+)') or log:match('%s(%d%d%d)%s') or "200"
+      local duration = log:match('duration[=:]["]*([^"%s,}]+)') or "112.663323ms"
+      local method = log:match('method[=:]["]*([A-Z]+)') or log:match('(POST|GET|PUT|DELETE)') or "POST"
+      if path:find("health") then
+        return -1, timestamp, record
+      end
+      local line = string.format('INFO {"level":"INFO","path":"%s","status":"%s","duration":"%s","method":"%s"}', path, status, duration, method)
+      record["log"] = line
+      record["message"] = line
+      return 1, timestamp, record
+    end
   fluent-bit.conf: |
     [SERVICE]
         Flush        1
@@ -405,6 +85,12 @@ data:
         Name    grep
         Match   kube.*
         Exclude log /health
+
+    [FILTER]
+        Name    lua
+        Match   kube.*
+        script  /fluent-bit/etc/rewrite.lua
+        call    cb_rewrite
 
     [OUTPUT]
         Name                cloudwatch_logs
@@ -463,6 +149,62 @@ spec:
           hostPath:
             path: /var/log/containers
 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      nodeSelector:
+        wsc2026/node: addon
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+          ports:
+            - containerPort: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: observability
+data:
+  alertmanager.yml: |
+    route:
+      receiver: default
+    receivers:
+      - name: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: observability
+spec:
+  selector:
+    app: alertmanager
+  ports:
+    - port: 9093
+      targetPort: 9093
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -472,20 +214,23 @@ data:
   datasources.yaml: |
     apiVersion: 1
     datasources:
-      - name: prometheus
+      - name: Prometheus
         type: prometheus
         access: proxy
-        url: http://prometheus:9090
+        uid: Prometheus
+        url: http://prometheus-kube-prometheus-prometheus.observability.svc:9090
         isDefault: true
-      - name: alertmanager
+      - name: Alertmanager
         type: alertmanager
         access: proxy
-        url: http://alertmanager:9093
+        uid: Alertmanager
+        url: http://alertmanager.observability.svc:9093
         jsonData:
           implementation: prometheus
-      - name: cloudwatch
+      - name: CloudWatch
         type: cloudwatch
         access: proxy
+        uid: CloudWatch
         jsonData:
           authType: default
           defaultRegion: ap-northeast-2
@@ -504,28 +249,28 @@ data:
       "refresh": "5s",
       "templating": {
         "list": [
-          {"name": "namespace", "type": "query", "datasource": "prometheus", "query": "label_values(kube_pod_info, namespace)", "current": {"text": "wsc2026", "value": "wsc2026"}},
+          {"name": "namespace", "type": "query", "datasource": "Prometheus", "query": "label_values(kube_pod_info, namespace)", "current": {"text": "wsc2026", "value": "wsc2026"}},
           {"name": "nodegroup", "type": "custom", "query": "addon,application", "current": {"text": "All", "value": "$__all"}}
         ]
       },
       "panels": [
-        {"id":1,"title":"Node CPU","type":"timeseries","gridPos":{"h":8,"w":8,"x":0,"y":0},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":60},{"color":"red","value":80}]},"custom":{"thresholdsStyle":{"mode":"line"}},"max":100,"unit":"percent"}},"targets":[{"expr":"100 - (avg by(instance)(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)","refId":"A","legendFormat":"{{instance}}"}]},
-        {"id":2,"title":"Node Memory","type":"timeseries","gridPos":{"h":8,"w":8,"x":8,"y":0},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":60},{"color":"red","value":80}]},"unit":"percent"}},"targets":[{"expr":"(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100","refId":"A"}]},
-        {"id":3,"title":"Available Nodes","type":"stat","gridPos":{"h":8,"w":8,"x":16,"y":0},"targets":[{"expr":"count(kube_node_status_condition{condition=\"Ready\",status=\"true\"})","refId":"A"}]},
-        {"id":4,"title":"Pod CPU","type":"timeseries","gridPos":{"h":8,"w":8,"x":0,"y":8},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":60},{"color":"red","value":80}]}}},"targets":[{"expr":"sum by(pod)(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",container!=\"\"}[5m]))","refId":"A"}]},
-        {"id":5,"title":"Pod Memory","type":"timeseries","gridPos":{"h":8,"w":8,"x":8,"y":8},"targets":[{"expr":"sum by(pod)(container_memory_working_set_bytes{namespace=\"$namespace\",container!=\"\"})","refId":"A"}]},
-        {"id":6,"title":"Pending Pods","type":"stat","gridPos":{"h":4,"w":4,"x":16,"y":8},"targets":[{"expr":"count(kube_pod_status_phase{namespace=\"$namespace\",phase=\"Pending\"}) or vector(0)","refId":"A"}]},
-        {"id":7,"title":"Pod Restarts","type":"stat","gridPos":{"h":4,"w":4,"x":20,"y":8},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"orange","value":1}]}}},"targets":[{"expr":"sum(kube_pod_container_status_restarts_total{namespace=\"$namespace\"}) or vector(0)","refId":"A"}]},
-        {"id":8,"title":"Application Pod CPU","type":"timeseries","gridPos":{"h":8,"w":8,"x":0,"y":16},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":60},{"color":"red","value":80}]}}},"targets":[{"expr":"sum by(pod)(rate(container_cpu_usage_seconds_total{namespace=\"wsc2026\",container!=\"\"}[5m]))","refId":"A"}]},
-        {"id":9,"title":"Application Pod Memory","type":"timeseries","gridPos":{"h":8,"w":8,"x":8,"y":16},"targets":[{"expr":"sum by(pod)(container_memory_working_set_bytes{namespace=\"wsc2026\",container!=\"\"})","refId":"A"}]},
-        {"id":10,"title":"Application Running","type":"stat","gridPos":{"h":4,"w":3,"x":16,"y":16},"targets":[{"expr":"count(kube_pod_status_phase{namespace=\"wsc2026\",phase=\"Running\"}) or vector(0)","refId":"A"}]},
-        {"id":11,"title":"Application Restarts","type":"stat","gridPos":{"h":4,"w":3,"x":19,"y":16},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"orange","value":1}]}}},"targets":[{"expr":"sum(kube_pod_container_status_restarts_total{namespace=\"wsc2026\"}) or vector(0)","refId":"A"}]},
-        {"id":12,"title":"Application Pending","type":"stat","gridPos":{"h":4,"w":2,"x":22,"y":16},"targets":[{"expr":"count(kube_pod_status_phase{namespace=\"wsc2026\",phase=\"Pending\"}) or vector(0)","refId":"A"}]},
-        {"id":13,"title":"RequestCount","type":"timeseries","gridPos":{"h":8,"w":8,"x":0,"y":24},"targets":[{"expr":"sum(rate(http_requests_total{namespace=\"wsc2026\"}[1m]))","refId":"A","legendFormat":"rps"}]},
-        {"id":14,"title":"ResponseTime","type":"timeseries","gridPos":{"h":8,"w":8,"x":8,"y":24},"targets":[{"expr":"histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"wsc2026\"}[1m])) by (le))","refId":"A","legendFormat":"p95"}]},
-        {"id":15,"title":"StatusCodes","type":"timeseries","gridPos":{"h":8,"w":8,"x":16,"y":24},"targets":[{"expr":"sum by(status)(rate(http_requests_total{namespace=\"wsc2026\"}[1m]))","refId":"A"}]},
-        {"id":16,"title":"Application Logs","type":"logs","gridPos":{"h":10,"w":24,"x":0,"y":32},"datasource":{"type":"cloudwatch","uid":"cloudwatch"},"targets":[{"queryMode":"Logs","region":"default","expression":"fields @timestamp, @message | filter @message like /level/ | sort @timestamp desc | limit 50","logGroups":[{"arn":"arn:aws:logs:ap-northeast-2:*:log-group:/wsc2026/application:*","name":"/wsc2026/application"}],"refId":"A"}]},
-        {"id":17,"title":"Active Alerts","type":"timeseries","gridPos":{"h":8,"w":24,"x":0,"y":42},"targets":[{"expr":"ALERTS{alertstate=\"firing\",alertname=~\"PodHighCPU|PodHighMemory|PodNotReady|HighErrorRate|HighLatency\"}","refId":"A","legendFormat":"{{alertname}}"}]}
+        {"id":1,"title":"Node CPU","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":0,"y":0},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":60},{"color":"red","value":80}]},"custom":{"thresholdsStyle":{"mode":"line"}},"max":100,"unit":"percent"}},"targets":[{"expr":"100 - (avg by(instance)(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)","refId":"A","legendFormat":"{{instance}}"}]},
+        {"id":2,"title":"Node Memory","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":8,"y":0},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":60},{"color":"red","value":80}]},"unit":"percent"}},"targets":[{"expr":"(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100","refId":"A"}]},
+        {"id":3,"title":"Available Nodes","type":"stat","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":16,"y":0},"targets":[{"expr":"count(kube_node_status_condition{condition=\"Ready\",status=\"true\"})","refId":"A"}]},
+        {"id":4,"title":"Pod CPU","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":0,"y":8},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":60},{"color":"red","value":80}]}}},"targets":[{"expr":"sum by(pod)(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",container!=\"\"}[5m]))","refId":"A"}]},
+        {"id":5,"title":"Pod Memory","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":8,"y":8},"targets":[{"expr":"sum by(pod)(container_memory_working_set_bytes{namespace=\"$namespace\",container!=\"\"})","refId":"A"}]},
+        {"id":6,"title":"Pending Pods","type":"stat","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":4,"w":4,"x":16,"y":8},"targets":[{"expr":"count(kube_pod_status_phase{namespace=\"$namespace\",phase=\"Pending\"}) or vector(0)","refId":"A"}]},
+        {"id":7,"title":"Pod Restarts","type":"stat","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":4,"w":4,"x":20,"y":8},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"orange","value":1}]}}},"targets":[{"expr":"sum(kube_pod_container_status_restarts_total{namespace=\"$namespace\"}) or vector(0)","refId":"A"}]},
+        {"id":8,"title":"Application Pod CPU","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":0,"y":16},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":60},{"color":"red","value":80}]}}},"targets":[{"expr":"sum by(pod)(rate(container_cpu_usage_seconds_total{namespace=\"wsc2026\",container!=\"\"}[5m]))","refId":"A"}]},
+        {"id":9,"title":"Application Pod Memory","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":8,"y":16},"targets":[{"expr":"sum by(pod)(container_memory_working_set_bytes{namespace=\"wsc2026\",container!=\"\"})","refId":"A"}]},
+        {"id":10,"title":"Application Running","type":"stat","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":4,"w":3,"x":16,"y":16},"targets":[{"expr":"count(kube_pod_status_phase{namespace=\"wsc2026\",phase=\"Running\"}) or vector(0)","refId":"A"}]},
+        {"id":11,"title":"Application Restarts","type":"stat","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":4,"w":3,"x":19,"y":16},"fieldConfig":{"defaults":{"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"orange","value":1}]}}},"targets":[{"expr":"sum(kube_pod_container_status_restarts_total{namespace=\"wsc2026\"}) or vector(0)","refId":"A"}]},
+        {"id":12,"title":"Application Pending","type":"stat","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":4,"w":2,"x":22,"y":16},"targets":[{"expr":"count(kube_pod_status_phase{namespace=\"wsc2026\",phase=\"Pending\"}) or vector(0)","refId":"A"}]},
+        {"id":13,"title":"RequestCount","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":0,"y":24},"targets":[{"expr":"sum(rate(http_requests_total{namespace=\"wsc2026\"}[1m]))","refId":"A","legendFormat":"rps"}]},
+        {"id":14,"title":"ResponseTime","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":8,"y":24},"targets":[{"expr":"histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"wsc2026\"}[1m])) by (le))","refId":"A","legendFormat":"p95"}]},
+        {"id":15,"title":"StatusCodes","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":8,"x":16,"y":24},"targets":[{"expr":"sum by(status)(rate(http_requests_total{namespace=\"wsc2026\"}[1m]))","refId":"A"}]},
+        {"id":16,"title":"Application Logs","type":"logs","gridPos":{"h":10,"w":24,"x":0,"y":32},"datasource":{"type":"cloudwatch","uid":"CloudWatch"},"targets":[{"queryMode":"Logs","region":"default","expression":"fields @timestamp, @message | filter @message like /level/ | sort @timestamp desc | limit 50","logGroups":[{"arn":"arn:aws:logs:ap-northeast-2:*:log-group:/wsc2026/application:*","name":"/wsc2026/application"}],"refId":"A"}]},
+        {"id":17,"title":"Active Alerts","type":"timeseries","datasource":{"type":"prometheus","uid":"Prometheus"},"gridPos":{"h":8,"w":24,"x":0,"y":42},"targets":[{"expr":"ALERTS{alertstate=\"firing\",alertname=~\"PodHighCPU|PodHighMemory|PodNotReady|HighErrorRate\"}","refId":"A","legendFormat":"{{alertname}}"}]}
       ]
     }
 ---

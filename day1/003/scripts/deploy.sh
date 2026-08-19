@@ -36,11 +36,15 @@ aws dynamodb update-continuous-backups \
   --region "${AWS_DEFAULT_REGION}" || true
 
 ECR_URL="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}"
-log "Build & push ${ECR_URL}:${IMAGE_TAG}"
-aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" \
-  | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
-docker build -t "${ECR_URL}:${IMAGE_TAG}" "${ROOT_DIR}"
-docker push "${ECR_URL}:${IMAGE_TAG}"
+if aws ecr describe-images --repository-name "${ECR_REPO}" --image-ids "imageTag=${IMAGE_TAG}" --region "${AWS_DEFAULT_REGION}" >/dev/null 2>&1; then
+  log "ECR image ${ECR_REPO}:${IMAGE_TAG} already present (CodeBuild/Terraform), skip local push"
+else
+  log "Build & push ${ECR_URL}:${IMAGE_TAG}"
+  aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" \
+    | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+  docker build -t "${ECR_URL}:${IMAGE_TAG}" "${ROOT_DIR}"
+  docker push "${ECR_URL}:${IMAGE_TAG}"
+fi
 
 ALB_SG=$("${TF[@]}" output -raw alb_sg_id)
 HUB_SUBNETS=$("${TF[@]}" output -json hub_subnet_ids | python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)))')
@@ -50,13 +54,16 @@ ALB_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/wsc2026-alb-controller-role"
 log "kubeconfig"
 aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_DEFAULT_REGION}"
 
-# Wait for nodes
+# Wait for nodes and pin scoring labels (mark.sh 4-2)
 for i in $(seq 1 60); do
   READY=$(kubectl get nodes --no-headers 2>/dev/null | grep -c ' Ready' || true)
   log "Ready nodes: ${READY}"
-  [[ "${READY}" -ge 2 ]] && break
+  [[ "${READY}" -ge 4 ]] && break
   sleep 15
 done
+kubectl label nodes -l eks.amazonaws.com/nodegroup=wsc2026-addon-nodegroup wsc2026/node=addon --overwrite || true
+kubectl label nodes -l eks.amazonaws.com/nodegroup=wsc2026-workload-ng wsc2026/node=application --overwrite || true
+kubectl get nodes --show-labels | grep wsc2026/node || true
 
 TMP=$(mktemp -d)
 trap 'rm -rf "${TMP}"' EXIT
@@ -86,9 +93,18 @@ else
 fi
 
 kubectl apply -f "${TMP}/book-app.yaml"
+
+log "Observability: kube-prometheus-stack (prometheus:7) + grafana + fluent-bit"
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+helm repo update prometheus-community || helm repo update
 kubectl apply -f "${ROOT_DIR}/k8s/observability.yaml" || true
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+  -n observability --create-namespace \
+  -f "${ROOT_DIR}/k8s/kube-prometheus-values.yaml" \
+  --wait --timeout 12m || true
 
 kubectl -n wsc2026 rollout status deploy/wsc2026-book-deploy --timeout=600s || true
+kubectl -n observability rollout status deploy/grafana --timeout=180s || true
 
 log "Wait for ALB"
 ALB_DNS=""
@@ -98,6 +114,23 @@ for i in $(seq 1 60); do
   sleep 15
 done
 log "ALB DNS: ${ALB_DNS}"
+
+log "Wait for Grafana NLB (mark.sh 11-2/11-3 URL)"
+GRAFANA_LB=""
+for i in $(seq 1 40); do
+  GRAFANA_LB=$(kubectl get svc -n observability grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  [[ -n "${GRAFANA_LB}" ]] && break
+  sleep 10
+done
+log "Grafana: http://${GRAFANA_LB}"
+
+# Let CloudShell GetFunction see plaintext TABLE_NAME (key policy cannot contain :root)
+FN_KEY=$(aws kms describe-key --key-id alias/wsc2026-function-kms --query KeyMetadata.Arn --output text 2>/dev/null || true)
+if [[ -n "${FN_KEY}" ]]; then
+  aws kms create-grant --key-id "${FN_KEY}" \
+    --grantee-principal "arn:aws:iam::${ACCOUNT_ID}:root" \
+    --operations Decrypt Encrypt GenerateDataKey DescribeKey CreateGrant >/dev/null 2>&1 || true
+fi
 
 if [[ -n "${ALB_DNS}" ]]; then
   log "Phase 2: CloudFront + WAF"

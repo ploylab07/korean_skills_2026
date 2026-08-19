@@ -189,6 +189,7 @@ resource "aws_iam_role_policy" "bastion_eks" {
       Action = [
         "eks:DescribeCluster",
         "eks:ListClusters",
+        "eks:AccessKubernetesApi",
       ]
       Resource = "*"
     }]

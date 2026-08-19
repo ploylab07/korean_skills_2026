@@ -36,10 +36,15 @@ resource "aws_instance" "bastion" {
   user_data = <<-EOF
     #!/bin/bash
     set -euxo pipefail
-    dnf install -y kubectl unzip
+    dnf install -y python3 unzip jq tar gzip
+    curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.2/bin/linux/amd64/kubectl"
+    chmod +x /usr/local/bin/kubectl
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
     unzip -qo /tmp/awscliv2.zip -d /tmp && /tmp/aws/install -u || true
+    mkdir -p /root/.kube /home/ec2-user/.kube
     aws eks update-kubeconfig --region ${var.region} --name ${local.cluster_name} || true
+    cp -a /root/.kube/config /home/ec2-user/.kube/config || true
+    chown -R ec2-user:ec2-user /home/ec2-user/.kube || true
   EOF
 
   tags = {

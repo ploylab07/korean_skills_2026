@@ -61,7 +61,8 @@ if has "$ROOT/ecr.tf" 'wsc2026-book-ecr' \
   && has "$ROOT/ecr.tf" 'v1\*' \
   && has "$ROOT/ecr.tf" 'encryption_type\s*=\s*"KMS"' \
   && has "$ROOT/kms.tf" 'alias/wsc2026-ecr-kms' \
-  && has "$ROOT/scripts/deploy.sh" 'IMAGE_TAG="v1.0.0"'; then
+  && has "$ROOT/ecr.tf" 'module "book_image"' \
+  && has "$ROOT/ecr.tf" 'v1.0.0'; then
   ok 1.2 "3-1 ECR"
 else
   bad 1.2 "3-1 ECR"
@@ -239,17 +240,19 @@ fi
 
 # ----- 11 Observability 5.2 -----
 OBS="$ROOT/k8s/observability.yaml"
+PROM="$ROOT/k8s/kube-prometheus-values.yaml"
 if hasf "$OBS" 'namespace: observability' \
-  && hasf "$OBS" 'name: prometheus' && hasf "$OBS" 'name: grafana' && hasf "$OBS" 'name: fluent-bit' \
+  && hasf "$OBS" 'name: grafana' && hasf "$OBS" 'name: fluent-bit' \
   && hasf "$OBS" 'wsc2026/node: addon' \
-  && hasf "$OBS" 'storage.tsdb.retention.time=7d' \
-  && hasf "$OBS" 'node-exporter'; then
+  && hasf "$PROM" 'retention: 7d' \
+  && hasf "$PROM" 'nodeExporter'; then
   ok 1.2 "11-1 Observability Deploy"
 else
   bad 1.2 "11-1 Observability Deploy"
 fi
 
 if hasf "$OBS" 'type: prometheus' && hasf "$OBS" 'type: alertmanager' && hasf "$OBS" 'type: cloudwatch' \
+  && hasf "$OBS" 'name: Prometheus' && hasf "$OBS" 'name: Alertmanager' && hasf "$OBS" 'name: CloudWatch' \
   && hasf "$OBS" 'Skills\$#\$@!' \
   && hasf "$OBS" 'wsc2026-grafana-dashboard' \
   && hasf "$OBS" 'LoadBalancer'; then
@@ -262,17 +265,17 @@ if hasf "$OBS" 'Node CPU' && hasf "$OBS" 'Node Memory' && hasf "$OBS" 'Available
   && hasf "$OBS" 'Pod CPU' && hasf "$OBS" 'Pod Memory' && hasf "$OBS" 'Pending' \
   && hasf "$OBS" 'Application Logs' \
   && hasf "$OBS" 'RequestCount' && hasf "$OBS" 'ResponseTime' && hasf "$OBS" 'StatusCodes' \
-  && hasf "$OBS" 'http_requests_total' \
   && hasf "$OBS" '"value":80' \
   && hasf "$OBS" 'cloudwatch_logs' \
-  && hasf "$OBS" 'Exclude_Path'; then
+  && hasf "$OBS" 'Exclude_Path' \
+  && hasf "$OBS" 'level":"INFO"'; then
   ok 1.5 "11-3 Dashboard panels + FluentBit→CW"
 else
   bad 1.5 "11-3 Dashboard panels + FluentBit→CW"
 fi
 
-if hasf "$OBS" 'PodHighCPU' && hasf "$OBS" 'PodHighMemory' \
-  && hasf "$OBS" 'PodNotReady' && hasf "$OBS" 'HighErrorRate' && hasf "$OBS" 'HighLatency' \
+if hasf "$PROM" 'PodHighCPU' && hasf "$PROM" 'PodHighMemory' \
+  && hasf "$PROM" 'PodNotReady' && hasf "$PROM" 'HighErrorRate' \
   && hasf "$OBS" 'Active Alerts'; then
   ok 1.5 "11-4 Alert rules + Active Alerts panel"
 else

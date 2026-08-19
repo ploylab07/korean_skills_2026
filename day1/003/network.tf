@@ -23,7 +23,9 @@ resource "aws_subnet" "hub_a" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "wsc2026-skills-hub-sub-a"
+    Name                              = "wsc2026-skills-hub-sub-a"
+    "kubernetes.io/role/elb"          = "1"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 }
 
@@ -34,7 +36,9 @@ resource "aws_subnet" "hub_b" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "wsc2026-skills-hub-sub-b"
+    Name                              = "wsc2026-skills-hub-sub-b"
+    "kubernetes.io/role/elb"          = "1"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 }
 
@@ -44,7 +48,9 @@ resource "aws_subnet" "app_a" {
   availability_zone = local.azs[0]
 
   tags = {
-    Name = "wsc2026-skills-app-sub-a"
+    Name                                      = "wsc2026-skills-app-sub-a"
+    "kubernetes.io/role/internal-elb"         = "1"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 }
 
@@ -54,7 +60,9 @@ resource "aws_subnet" "app_b" {
   availability_zone = local.azs[1]
 
   tags = {
-    Name = "wsc2026-skills-app-sub-b"
+    Name                                      = "wsc2026-skills-app-sub-b"
+    "kubernetes.io/role/internal-elb"         = "1"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 }
 
@@ -312,4 +320,34 @@ resource "aws_security_group_rule" "cluster_sg_from_bastion" {
   security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
   source_security_group_id = aws_security_group.bastion.id
   description              = "Bastion to EKS API"
+}
+
+resource "aws_security_group_rule" "cluster_sg_from_mark" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  source_security_group_id = aws_security_group.mark.id
+  description              = "CloudShell mark-sg to EKS API"
+}
+
+resource "aws_security_group_rule" "cluster_sg_from_vpc_443" {
+  type              = "ingress"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  cidr_blocks       = [aws_vpc.main.cidr_block]
+  description       = "VPC (CloudShell/bastion) to EKS API"
+}
+
+resource "aws_security_group_rule" "cluster_sg_grafana_3000" {
+  type              = "ingress"
+  from_port         = 3000
+  to_port           = 3000
+  protocol          = "tcp"
+  security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  cidr_blocks       = ["0.0.0.0/0"]
+  description       = "Grafana NLB to pods"
 }
