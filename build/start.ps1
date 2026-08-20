@@ -307,6 +307,34 @@ function Import-Day1002Orphans([string]$AssignPath) {
     Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_distribution.main" -Id $distId
 }
 
+function Invoke-Day1003PostDeploy([string]$AssignPath) {
+    Write-Step "day1/003 post-deploy (k8s apps + CloudFront)"
+    Write-Host "start.cmd only runs Terraform. day1/003 also needs deploy.sh for mark 4-2/5/11." -ForegroundColor Yellow
+
+    $deploySh = Join-Path $AssignPath "scripts\deploy.sh"
+    if (-not (Test-Path -LiteralPath $deploySh)) {
+        throw "Missing $deploySh"
+    }
+
+    $bash = Get-Command bash -ErrorAction SilentlyContinue
+    if ($bash) {
+        $bashExe = $bash.Source
+    }
+    else {
+        $bashExe = Join-Path ${env:ProgramFiles} "Git\bin\bash.exe"
+    }
+    if (-not (Test-Path -LiteralPath $bashExe)) {
+        throw "Git Bash required for day1/003 deploy.sh"
+    }
+
+    Write-Host ("RUN: {0} {1}" -f $bashExe, $deploySh) -ForegroundColor Cyan
+    & $bashExe $deploySh
+    if ($LASTEXITCODE -ne 0) {
+        throw ("deploy.sh failed (exit {0})" -f $LASTEXITCODE)
+    }
+    Write-Ok "day1/003 post-deploy done"
+}
+
 function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
     Write-Step "5/5 Deploy (apply) - $RelPath"
 
@@ -348,6 +376,9 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
                 }
                 $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve"))
                 if ($code -eq 0) {
+                    if ($RelPath -match '(?i)day1\\003') {
+                        Invoke-Day1003PostDeploy -AssignPath $AssignPath
+                    }
                     Write-Ok "Deploy done: $RelPath"
                     return $true
                 }
@@ -355,6 +386,10 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
             }
         }
         throw "terraform apply failed — see build\last-terraform.log"
+    }
+
+    if ($RelPath -match '(?i)day1\\003') {
+        Invoke-Day1003PostDeploy -AssignPath $AssignPath
     }
 
     Write-Ok "Deploy done: $RelPath"

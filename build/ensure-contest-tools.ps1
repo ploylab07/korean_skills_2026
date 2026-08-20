@@ -74,11 +74,15 @@ function Refresh-ProcessPath {
 }
 
 function Test-NeedsBashLocalExec([string]$RelPath) {
-    return ($RelPath -match '(?i)day1\\(002|007)|day2\\(002|007|008)')
+    return ($RelPath -match '(?i)day1\\(002|003|007)|day2\\(002|007|008)')
 }
 
 function Test-NeedsKubectl([string]$RelPath) {
-    return ($RelPath -match '(?i)day1\\(002|007)|day2\\(007|008)')
+    return ($RelPath -match '(?i)day1\\(002|003|007)|day2\\(007|008)')
+}
+
+function Test-NeedsHelm([string]$RelPath) {
+    return ($RelPath -match '(?i)day1\\(002|003|007)')
 }
 
 function Test-NeedsDocker([string]$RelPath) {
@@ -122,6 +126,7 @@ function Try-InstallMissingTools {
     param(
         [bool]$NeedAws,
         [bool]$NeedKubectl,
+        [bool]$NeedHelm,
         [bool]$NeedBash,
         [bool]$NeedDocker
     )
@@ -148,6 +153,13 @@ function Try-InstallMissingTools {
             Write-Host "Git winget failed. Install from https://git-scm.com/download/win" -ForegroundColor Yellow
         }
     }
+    if ($NeedHelm) {
+        $ok = $false
+        try { $ok = Install-WithWinget -Id "Helm.Helm" -Label "Helm" } catch { $ok = $false }
+        if (-not $ok) {
+            Write-Host "Helm winget failed. Install from https://helm.sh/docs/intro/install/" -ForegroundColor Yellow
+        }
+    }
     if ($NeedDocker) {
         $ok = $false
         try { $ok = Install-WithWinget -Id "Docker.DockerDesktop" -Label "Docker Desktop" } catch { $ok = $false }
@@ -172,6 +184,7 @@ function Resolve-ContestTools {
 
     $needBash = Test-NeedsBashLocalExec $RelPath
     $needKubectl = Test-NeedsKubectl $RelPath
+    $needHelm = Test-NeedsHelm $RelPath
     $needDocker = Test-NeedsDocker $RelPath
 
     $aws = Find-ToolPath -Name "aws" -CandidateExes @(
@@ -179,6 +192,7 @@ function Resolve-ContestTools {
         (Join-Path $pf86 "Amazon\AWSCLIV2\aws.exe")
     )
     $kubectl = $null
+    $helm = $null
     $docker = $null
     $bash = $null
     if ($needKubectl) {
@@ -186,6 +200,12 @@ function Resolve-ContestTools {
             (Join-Path $script:ContestToolsBinDir "kubectl.exe")
             (Join-Path $pf "Docker\Docker\resources\bin\kubectl.exe")
             (Join-Path $local "Microsoft\WinGet\Links\kubectl.exe")
+        )
+    }
+    if ($needHelm) {
+        $helm = Find-ToolPath -Name "helm" -CandidateExes @(
+            (Join-Path $script:ContestToolsBinDir "helm.exe")
+            (Join-Path $local "Microsoft\WinGet\Links\helm.exe")
         )
     }
     if ($needDocker) {
@@ -204,9 +224,11 @@ function Resolve-ContestTools {
     return @{
         NeedBash    = $needBash
         NeedKubectl = $needKubectl
+        NeedHelm    = $needHelm
         NeedDocker  = $needDocker
         Aws         = $aws
         Kubectl     = $kubectl
+        Helm        = $helm
         Docker      = $docker
         Bash        = $bash
     }
@@ -275,6 +297,7 @@ function Ensure-ContestTools {
     $missing = @()
     if (-not $t.Aws) { $missing += "AWS CLI v2 (aws.exe)" }
     if ($t.NeedKubectl -and -not $t.Kubectl) { $missing += "kubectl" }
+    if ($t.NeedHelm -and -not $t.Helm) { $missing += "Helm (helm.exe)" }
     if ($t.NeedDocker -and -not $t.Docker) { $missing += "Docker Desktop (docker.exe)" }
     if ($t.NeedBash -and -not $t.Bash) { $missing += "Git for Windows (bash.exe)" }
 
@@ -282,7 +305,7 @@ function Ensure-ContestTools {
         Write-Host "[!] Missing tools:" -ForegroundColor Yellow
         foreach ($m in $missing) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
         Try-InstallMissingTools -NeedAws (-not $t.Aws) -NeedKubectl ($t.NeedKubectl -and -not $t.Kubectl) `
-            -NeedBash ($t.NeedBash -and -not $t.Bash) -NeedDocker ($t.NeedDocker -and -not $t.Docker)
+            -NeedHelm ($t.NeedHelm -and -not $t.Helm) -NeedBash ($t.NeedBash -and -not $t.Bash) -NeedDocker ($t.NeedDocker -and -not $t.Docker)
         Refresh-ProcessPath
         $t = Resolve-ContestTools -RelPath $RelPath
     }
@@ -290,6 +313,7 @@ function Ensure-ContestTools {
     $still = @()
     if (-not $t.Aws) { $still += "AWS CLI v2 - https://aws.amazon.com/cli/" }
     if ($t.NeedKubectl -and -not $t.Kubectl) { $still += "kubectl - will retry download on next run" }
+    if ($t.NeedHelm -and -not $t.Helm) { $still += "Helm - https://helm.sh/docs/intro/install/" }
     if ($t.NeedDocker -and -not $t.Docker) {
         $still += "Docker Desktop - install + START it, then re-run .\start.cmd (https://www.docker.com/products/docker-desktop/)"
     }
@@ -304,6 +328,7 @@ function Ensure-ContestTools {
 
     Add-PathDir (Split-Path -Parent $t.Aws)
     if ($t.Kubectl) { Add-PathDir (Split-Path -Parent $t.Kubectl) }
+    if ($t.Helm) { Add-PathDir (Split-Path -Parent $t.Helm) }
     if ($t.Docker) { Add-PathDir (Split-Path -Parent $t.Docker) }
     if ($t.Bash) {
         Add-PathDir (Split-Path -Parent $t.Bash)
@@ -316,6 +341,7 @@ function Ensure-ContestTools {
 
     Write-Host ("[OK] aws={0}" -f $t.Aws) -ForegroundColor Green
     if ($t.NeedKubectl) { Write-Host ("[OK] kubectl={0}" -f $t.Kubectl) -ForegroundColor Green }
+    if ($t.NeedHelm) { Write-Host ("[OK] helm={0}" -f $t.Helm) -ForegroundColor Green }
     if ($t.NeedDocker) { Write-Host ("[OK] docker={0}" -f $t.Docker) -ForegroundColor Green }
     if ($t.NeedBash) { Write-Host ("[OK] bash={0}" -f $t.Bash) -ForegroundColor Green }
 
