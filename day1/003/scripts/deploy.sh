@@ -1,18 +1,66 @@
 #!/usr/bin/env bash
 # day1/003 deploy: terraform (phase1) → ECR image → k8s → CloudFront (phase2)
+# Run from anywhere:
+#   bash day1/003/scripts/deploy.sh
+#   cd day1/003 && bash scripts/deploy.sh
+#   cd day1/003 && ./deploy.sh
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "${ROOT_DIR}/../.." && pwd)"
-# shellcheck disable=SC1091
-set -a && source "${REPO_ROOT}/.env" && set +a
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+find_up() {
+  local dir="$1" name="$2"
+  while [[ -n "${dir}" && "${dir}" != "/" ]]; do
+    if [[ -e "${dir}/${name}" ]]; then
+      printf '%s\n' "${dir}"
+      return 0
+    fi
+    dir="$(cd "${dir}/.." && pwd)"
+  done
+  return 1
+}
+
+# Assignment dir = folder that contains eks.tf (scripts/ 또는 day1/003 어디에 두든)
+if [[ -f "${SCRIPT_DIR}/eks.tf" ]]; then
+  ROOT_DIR="${SCRIPT_DIR}"
+else
+  ROOT_DIR="$(find_up "${SCRIPT_DIR}" "eks.tf" || true)"
+fi
+if [[ -z "${ROOT_DIR}" || ! -f "${ROOT_DIR}/eks.tf" ]]; then
+  echo "deploy.sh: eks.tf 를 찾지 못했습니다. day1/003 폴더에서 실행하세요." >&2
+  echo "  cd day1/003 && bash scripts/deploy.sh" >&2
+  exit 1
+fi
+
+REPO_ROOT="$(find_up "${ROOT_DIR}" ".env" || true)"
+if [[ -z "${REPO_ROOT}" ]]; then
+  REPO_ROOT="$(find_up "${ROOT_DIR}" "setup-aws" || true)"
+fi
+if [[ -z "${REPO_ROOT}" ]]; then
+  REPO_ROOT="$(cd "${ROOT_DIR}/../.." && pwd)"
+fi
+
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  # shellcheck disable=SC1091
+  set -a && source "${REPO_ROOT}/.env" && set +a
+elif [[ -f "${ROOT_DIR}/.env" ]]; then
+  set -a && source "${ROOT_DIR}/.env" && set +a
+fi
 
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-2}"
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 CLUSTER_NAME="wsc2026-eks-cluster"
 ECR_REPO="wsc2026-book-ecr"
 IMAGE_TAG="v1.0.0"
-TF=("${REPO_ROOT}/terraform" -chdir="${ROOT_DIR}")
+
+if [[ -x "${REPO_ROOT}/terraform" ]]; then
+  TF=("${REPO_ROOT}/terraform" -chdir="${ROOT_DIR}")
+elif command -v terraform >/dev/null 2>&1; then
+  TF=(terraform -chdir="${ROOT_DIR}")
+else
+  echo "deploy.sh: terraform 을 찾지 못했습니다. PATH 또는 저장소 루트의 ./terraform 이 필요합니다." >&2
+  exit 1
+fi
 
 log() { echo "[deploy] $*"; }
 
