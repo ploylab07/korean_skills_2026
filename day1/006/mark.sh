@@ -4,16 +4,29 @@ echo "============================="
 # mkdir -p ~/.aws
 echo "사전준비 시작!"
 
-export DistributionID="E23E1YNLXN4264"
+export DistributionID="E19OB4QMRUMU8S"
 export BUCKET="gj2026-static-006"
-export CF_DOMAIN=$(aws cloudfront get-distribution --id ${DistributionID} --query "Distribution.DomainName" --output text)
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Hardcoded ID can be stale after recreate / other account — resolve by comment
+if ! aws cloudfront get-distribution --id "${DistributionID}" >/dev/null 2>&1; then
+  DistributionID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='gj2026-cdn' || Comment=='gj2026-svc-cf'].Id | [0]" --output text)
+  if [ -z "${DistributionID}" ] || [ "${DistributionID}" = "None" ]; then
+    DistributionID=$(aws cloudfront list-distributions --query 'DistributionList.Items[0].Id' --output text)
+  fi
+  export DistributionID
+fi
+export CF_DOMAIN=$(aws cloudfront get-distribution --id "${DistributionID}" --query "Distribution.DomainName" --output text)
 
 aws configure set default.region ap-northeast-2
 aws eks update-kubeconfig --name gj2026-eks-cluster >/dev/null 2>&1
 aws ecr get-login-password --region ap-northeast-2 2>/dev/null | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com >/dev/null 2>&1
-export InvalidationID=$(aws cloudfront create-invalidation --distribution-id ${DistributionID} --paths "/*" --query "Invalidation.Id" --output text)
-aws cloudfront wait invalidation-completed --distribution-id ${DistributionID} --id ${InvalidationID}
+if [ -n "${DistributionID}" ] && [ "${DistributionID}" != "None" ]; then
+  export InvalidationID=$(aws cloudfront create-invalidation --distribution-id "${DistributionID}" --paths "/*" --query "Invalidation.Id" --output text 2>/dev/null || true)
+  if [ -n "${InvalidationID}" ] && [ "${InvalidationID}" != "None" ]; then
+    aws cloudfront wait invalidation-completed --distribution-id "${DistributionID}" --id "${InvalidationID}"
+  fi
+fi
 
 echo "사전준비 완료! 채점 시작!"
 
@@ -58,7 +71,7 @@ echo -e "\n============4-4-A============"
 kubectl get deployment -n skills book
 
 echo -e "\n============4-5-A============"
-kubectl delete pod -n skills nginx-test >/dev/null
+kubectl delete pod -n skills nginx-test --ignore-not-found >/dev/null 2>&1
 docker pull ${ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/ecr-public/nginx/nginx:latest >/dev/null 2>&1 && kubectl run nginx-test -n skills --image=${ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com/ecr-public/nginx/nginx:latest --restart=Never 2>/dev/null && sleep 3 && kubectl exec -n skills nginx-test -- curl -m 5 -sS http://book-svc:8080/health 2>&1 | grep -v '^Defaulted container'
 
 echo -e "\n============5-1-A============"

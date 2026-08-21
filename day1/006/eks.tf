@@ -91,12 +91,10 @@ resource "aws_eks_cluster" "main" {
   }
 
   access_config {
-    # Prefer CONFIG_MAP at first create so aws-auth owns node identity
-    # (custom system:node:gj2026.{{SessionName}}.*). If the live cluster was
-    # upgraded to API_AND_CONFIG_MAP for grader access entries, keep that value
-    # here so terraform apply does not attempt an unsupported downgrade.
-    # Never leave EC2_LINUX access entries on node roles — they override aws-auth.
-    authentication_mode                         = "API_AND_CONFIG_MAP"
+    # CONFIG_MAP so aws-auth username templates (system:node:gj2026.{{SessionName}}.*)
+    # control identity — required for custom hostnames + kubelet-serving CSR.
+    # API_AND_CONFIG_MAP auto-creates EC2_LINUX access entries that override aws-auth.
+    authentication_mode                         = "CONFIG_MAP"
     bootstrap_cluster_creator_admin_permissions = true
   }
 

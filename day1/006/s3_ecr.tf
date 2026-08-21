@@ -54,6 +54,7 @@ resource "aws_s3_object" "main_jpeg" {
 resource "aws_ecr_repository" "book" {
   name                 = "book"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -69,6 +70,7 @@ resource "aws_ecr_repository" "book" {
 resource "aws_ecr_repository" "hostname_bootstrap" {
   name                 = "hostname-bootstrap"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true

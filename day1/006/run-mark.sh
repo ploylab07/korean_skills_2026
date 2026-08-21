@@ -4,7 +4,7 @@ set -euo pipefail
 export AWS_DEFAULT_REGION=ap-northeast-2
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:?}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:?}"
-cd /root/korean_skills_2026/day1/006
+cd "$(dirname "$0")"
 
 # Scoring hygiene (account-wide mark checks)
 for nat in $(aws ec2 describe-nat-gateways --filter Name=state,Values=available,pending --query 'NatGateways[].NatGatewayId' --output text); do
@@ -18,7 +18,10 @@ for igw in $(aws ec2 describe-internet-gateways --query 'InternetGateways[].Inte
 done
 
 # Ensure mark.sh has CF id
-CF_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='gj2026-svc-cf'].Id|[0]" --output text 2>/dev/null || true)
+CF_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='gj2026-cdn' || Comment=='gj2026-svc-cf'].Id | [0]" --output text 2>/dev/null || true)
+if [[ -z "$CF_ID" || "$CF_ID" == "None" ]]; then
+  CF_ID=$(aws cloudfront list-distributions --query 'DistributionList.Items[0].Id' --output text 2>/dev/null || true)
+fi
 if [[ -n "$CF_ID" && "$CF_ID" != "None" ]]; then
   sed -i "s/export DistributionID=.*/export DistributionID=\"${CF_ID}\"/" mark.sh
 fi
