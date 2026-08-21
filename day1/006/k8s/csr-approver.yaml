@@ -1,0 +1,39 @@
+# Applied by post-deploy as RBAC only; approval loop runs in post-deploy.sh
+# (private subnets have no NAT — CronJob cannot curl dl.k8s.io for kubectl)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csr-approver
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: csr-approver
+rules:
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests/approval"]
+    verbs: ["update"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["signers"]
+    resourceNames: ["kubernetes.io/kubelet-serving"]
+    verbs: ["approve"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: csr-approver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: csr-approver
+subjects:
+  - kind: ServiceAccount
+    name: csr-approver
+    namespace: kube-system
+  - kind: Group
+    name: system:masters
+    apiGroup: rbac.authorization.k8s.io

@@ -49,9 +49,11 @@ resource "aws_dynamodb_resource_policy" "books" {
         Condition = {
           ArnNotLike = {
             "aws:PrincipalArn" = [
-              "arn:aws:sts::${local.account_id}:assumed-role/${aws_iam_role.eks_node.name}/*",
+              "arn:aws:sts::${local.account_id}:assumed-role/${aws_iam_role.eks_addon_node.name}/*",
+              "arn:aws:sts::${local.account_id}:assumed-role/${aws_iam_role.eks_app_node.name}/*",
               "arn:aws:sts::${local.account_id}:assumed-role/${aws_iam_role.lambda.name}/*",
-              aws_iam_role.eks_node.arn,
+              aws_iam_role.eks_addon_node.arn,
+              aws_iam_role.eks_app_node.arn,
               aws_iam_role.lambda.arn
             ]
           }

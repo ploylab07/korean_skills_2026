@@ -13,6 +13,53 @@ echo "== kubeconfig =="
 aws eks update-kubeconfig --name "$CLUSTER" --region "$AWS_DEFAULT_REGION" --alias gj2026
 kubectl config use-context gj2026
 
+echo "== authenticator can read aws-auth (CONFIG_MAP / API_AND_CONFIG_MAP) =="
+kubectl apply -f - <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eks-authenticator-aws-auth
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["aws-auth"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eks-authenticator-aws-auth
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eks-authenticator-aws-auth
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: eks:authenticator
+EOF
+
+echo "== approve kubelet-serving CSRs (custom hostnames) =="
+for i in $(seq 1 12); do
+  pending=$(kubectl get csr --no-headers 2>/dev/null | awk '$NF !~ /Issued/ {print $1}')
+  for c in $pending; do
+    [ -n "$c" ] && kubectl certificate approve "$c" >/dev/null 2>&1 || true
+  done
+  issued=$(kubectl get csr --no-headers 2>/dev/null | grep -c Issued || true)
+  [ "${issued:-0}" -ge 4 ] && break
+  sleep 5
+done
+
+echo "== scrub EC2_LINUX access entries on node roles (keep aws-auth usernames) =="
+for arn in \
+  "arn:aws:iam::${ACCOUNT_ID}:role/gj2026-eks-addon-node-role" \
+  "arn:aws:iam::${ACCOUNT_ID}:role/gj2026-eks-app-node-role"; do
+  aws eks delete-access-entry --cluster-name "$CLUSTER" --principal-arn "$arn" 2>/dev/null || true
+done
+
 echo "== ECR login & pull-through =="
 aws ecr get-login-password | docker login --username AWS --password-stdin "$ECR"
 aws ecr create-pull-through-cache-rule --ecr-repository-prefix ecr-public --upstream-registry-url public.ecr.aws 2>/dev/null || true
@@ -65,6 +112,8 @@ echo "== apply k8s =="
 sed "s|IMAGE_PLACEHOLDER|${BOOK_IMAGE}|g" k8s/book.yaml | kubectl apply -f -
 # fluent-bit with account ECR
 sed "s|IMAGE_ECR|${ECR}|g" k8s/fluentbit.yaml | kubectl apply -f -
+# CSR auto-approve for custom hostname kubelet-serving certs (RBAC; approve loop above)
+kubectl apply -f k8s/csr-approver.yaml
 
 # WSI Dashboard + CloudWatch datasource provisioning
 kubectl -n monitoring create configmap wsi-dashboard \
@@ -213,7 +262,7 @@ ALB_IPS=$(aws ec2 describe-network-interfaces --filters Name=description,Values=
 } | kubectl apply -f -
 
 echo "== update mark.sh DistributionID =="
-CF_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='gj2026-cdn'].Id | [0]" --output text)
+CF_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='gj2026-svc-cf' || Comment=='gj2026-cdn'].Id | [0]" --output text)
 if [ -z "$CF_ID" ] || [ "$CF_ID" = "None" ]; then
   CF_ID=$(aws cloudfront list-distributions --query 'DistributionList.Items[0].Id' --output text)
 fi
@@ -222,6 +271,11 @@ sed -i 's/export BUCKET=.*/export BUCKET="gj2026-static-006"/' mark.sh
 # Don't wipe credentials during our local mark runs
 sed -i 's/^rm -rf ~\/.aws/# rm -rf ~\/.aws/' mark.sh
 echo "CF_ID=$CF_ID"
+
+echo "== re-approve CSRs after workloads =="
+kubectl get csr --no-headers 2>/dev/null | awk '$NF !~ /Issued/ {print $1}' | while read -r c; do
+  [ -n "$c" ] && kubectl certificate approve "$c" >/dev/null 2>&1 || true
+done
 
 echo "== wait targets healthy =="
 for i in $(seq 1 30); do

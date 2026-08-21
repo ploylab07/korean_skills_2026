@@ -244,7 +244,8 @@ if has "$ROOT/k8s/fluentbit.yaml" 'aws-for-fluent-bit' \
   && has "$ROOT/k8s/fluentbit.yaml" 'ap-northeast-2a' \
   && has "$ROOT/k8s/fluentbit.yaml" 'ap-northeast-2b' \
   && has "$ROOT/k8s/fluentbit.yaml" 'remote_addr' \
-  && has "$ROOT/k8s/fluentbit.yaml" 'namespace: logging'; then
+  && has "$ROOT/k8s/fluentbit.yaml" 'namespace: logging' \
+  && (has "$ROOT/k8s/fluentbit.yaml" 'STREAM_PLACEHOLDER|STREAM_NAME' || has "$ROOT/k8s/fluentbit.yaml" 'rewrite_tag'); then
   ok 1.5 "10-1 Fluent Bit (AZ streams)"
 else
   bad 1.5 "10-1 Fluent Bit"

@@ -115,6 +115,11 @@ resource "aws_security_group" "nodes" {
   }
 
   tags = merge(local.common_tags, { Name = "gj2026-eks-nodes-sg" })
+
+  # Separate aws_security_group_rule.* manage cluster→node rules; do not strip them.
+  lifecycle {
+    ignore_changes = [ingress]
+  }
 }
 
 resource "aws_security_group" "alb" {

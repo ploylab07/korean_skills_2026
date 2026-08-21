@@ -21,12 +21,13 @@ resource "aws_launch_template" "addon" {
     tags          = merge(local.common_tags, { Name = "gj2026-eks-addon-node" })
   }
 
-  # BR 1.63+: hostname-override-source is only private-dns-name|instance-id
-  # Use instance-id so pluto does not force private DNS; bootstrap then sets full name.
+  # source=instance-id prevents PLUTO from overwriting hostname-override with private DNS.
+  # Bootstrap then sets the full contest name gj2026.<iid>.addon.node before kubelet.
   user_data = base64encode(<<-EOT
 settings.kubernetes.hostname-override-source = "instance-id"
 settings.kubernetes.node-labels.role = "addon"
 settings.kubernetes.node-labels.gj2026 = "addon"
+settings.kubernetes.server-tls-bootstrap = true
 settings.bootstrap-containers.hostname.source = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/hostname-bootstrap:latest"
 settings.bootstrap-containers.hostname.mode = "always"
 settings.bootstrap-containers.hostname.essential = true
@@ -61,6 +62,7 @@ resource "aws_launch_template" "app" {
 settings.kubernetes.hostname-override-source = "instance-id"
 settings.kubernetes.node-labels.role = "app"
 settings.kubernetes.node-labels.gj2026 = "app"
+settings.kubernetes.server-tls-bootstrap = true
 settings.bootstrap-containers.hostname.source = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/hostname-bootstrap:latest"
 settings.bootstrap-containers.hostname.mode = "always"
 settings.bootstrap-containers.hostname.essential = true
@@ -89,6 +91,11 @@ resource "aws_eks_cluster" "main" {
   }
 
   access_config {
+    # Prefer CONFIG_MAP at first create so aws-auth owns node identity
+    # (custom system:node:gj2026.{{SessionName}}.*). If the live cluster was
+    # upgraded to API_AND_CONFIG_MAP for grader access entries, keep that value
+    # here so terraform apply does not attempt an unsupported downgrade.
+    # Never leave EC2_LINUX access entries on node roles — they override aws-auth.
     authentication_mode                         = "API_AND_CONFIG_MAP"
     bootstrap_cluster_creator_admin_permissions = true
   }
@@ -107,7 +114,7 @@ resource "aws_eks_cluster" "main" {
 resource "aws_eks_node_group" "addon" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "gj2026-eks-addon-nodegroup"
-  node_role_arn   = aws_iam_role.eks_node.arn
+  node_role_arn   = aws_iam_role.eks_addon_node.arn
   subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
   ami_type        = "BOTTLEROCKET_x86_64"
   instance_types  = ["t3.medium"]
@@ -133,19 +140,20 @@ resource "aws_eks_node_group" "addon" {
     aws_iam_role_policy_attachment.node_worker,
     aws_iam_role_policy_attachment.node_cni,
     aws_iam_role_policy_attachment.node_ecr,
+    kubernetes_config_map_v1.aws_auth,
   ]
 
   tags = merge(local.common_tags, { Name = "gj2026-eks-addon-nodegroup" })
 
   lifecycle {
-    ignore_changes = [scaling_config[0].desired_size]
+    ignore_changes = [scaling_config[0].desired_size, launch_template[0].version]
   }
 }
 
 resource "aws_eks_node_group" "app" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "gj2026-eks-app-nodegroup"
-  node_role_arn   = aws_iam_role.eks_node.arn
+  node_role_arn   = aws_iam_role.eks_app_node.arn
   subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
   ami_type        = "BOTTLEROCKET_x86_64"
   instance_types  = ["m5.large"]
@@ -171,12 +179,13 @@ resource "aws_eks_node_group" "app" {
     aws_iam_role_policy_attachment.node_worker,
     aws_iam_role_policy_attachment.node_cni,
     aws_iam_role_policy_attachment.node_ecr,
+    kubernetes_config_map_v1.aws_auth,
   ]
 
   tags = merge(local.common_tags, { Name = "gj2026-eks-app-nodegroup" })
 
   lifecycle {
-    ignore_changes = [scaling_config[0].desired_size]
+    ignore_changes = [scaling_config[0].desired_size, launch_template[0].version]
   }
 }
 
@@ -231,38 +240,62 @@ resource "aws_security_group_rule" "cluster_sg_from_alb_grafana" {
   source_security_group_id = aws_security_group.alb.id
 }
 
-# Custom Bottlerocket hostnames need username != system:node:<iid>
-# so NodeRestriction does not block gj2026.<iid>.{addon|app}.node registration.
-resource "aws_eks_access_entry" "nodes" {
-  cluster_name      = aws_eks_cluster.main.name
-  principal_arn     = aws_iam_role.eks_node.arn
-  type              = "STANDARD"
-  user_name         = "gj2026-worker"
-  kubernetes_groups = []
-}
-
-resource "aws_eks_access_policy_association" "nodes_admin" {
-  cluster_name  = aws_eks_cluster.main.name
-  principal_arn = aws_iam_role.eks_node.arn
-  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-  access_scope {
-    type = "cluster"
-  }
-  depends_on = [aws_eks_access_entry.nodes]
-}
-
-resource "kubernetes_config_map_v1_data" "aws_auth" {
+# Create aws-auth (CONFIG_MAP mode does not auto-create it).
+# Username must equal CSR CN: system:node:gj2026.<iid>.{addon|app}.node
+resource "kubernetes_config_map_v1" "aws_auth" {
   metadata {
     name      = "aws-auth"
     namespace = "kube-system"
   }
   data = {
-    mapRoles = yamlencode([{
-      rolearn  = aws_iam_role.eks_node.arn
-      username = "gj2026-worker"
-      groups   = ["system:bootstrappers", "system:nodes", "system:masters"]
-    }])
+    # Keep YAML unquoted so plan matches live aws-auth (yamlencode adds quotes).
+    mapRoles = <<-EOT
+    - rolearn: ${aws_iam_role.eks_addon_node.arn}
+      username: system:node:gj2026.{{SessionName}}.addon.node
+      groups:
+        - system:bootstrappers
+        - system:nodes
+    - rolearn: ${aws_iam_role.eks_app_node.arn}
+      username: system:node:gj2026.{{SessionName}}.app.node
+      groups:
+        - system:bootstrappers
+        - system:nodes
+    EOT
   }
-  force      = true
-  depends_on = [aws_eks_cluster.main, aws_eks_node_group.addon]
+  depends_on = [aws_eks_cluster.main]
+}
+
+# CONFIG_MAP clusters may omit this binding — without it nodes never join.
+resource "kubernetes_cluster_role_v1" "eks_authenticator_aws_auth" {
+  metadata {
+    name = "eks-authenticator-aws-auth"
+  }
+  rule {
+    api_groups     = [""]
+    resources      = ["configmaps"]
+    resource_names = ["aws-auth"]
+    verbs          = ["get", "watch", "list"]
+  }
+  rule {
+    api_groups = [""]
+    resources  = ["configmaps"]
+    verbs      = ["list", "watch"]
+  }
+  depends_on = [aws_eks_cluster.main]
+}
+
+resource "kubernetes_cluster_role_binding_v1" "eks_authenticator_aws_auth" {
+  metadata {
+    name = "eks-authenticator-aws-auth"
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "ClusterRole"
+    name      = kubernetes_cluster_role_v1.eks_authenticator_aws_auth.metadata[0].name
+  }
+  subject {
+    kind      = "User"
+    name      = "eks:authenticator"
+    api_group = "rbac.authorization.k8s.io"
+  }
 }

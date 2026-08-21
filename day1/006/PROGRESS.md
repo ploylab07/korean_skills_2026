@@ -21,3 +21,11 @@
 ## 주의
 - `.env` / AWS 키 / tfstate 커밋 금지
 - Bottlerocket 1.63 `hostname-override-source`는 `private-dns-name` | `instance-id` 만 허용
+
+## 2026-08-21 live mark (30/30)
+
+- EKS: create CONFIG_MAP → aws-auth `system:node:gj2026.{{SessionName}}.{addon|app}.node` + authenticator RBAC; CSR approve; optional upgrade to API_AND_CONFIG_MAP for IAM grader (scrub node EC2_LINUX entries).
+- 4-5: ALB ENI /32 NP → `curl: (28) Connection timed out`
+- 10-1: Fluent Bit stream = IMDS node AZ (`/book-svc/ap-northeast-2a|b`), not ALB ENI
+- 3-3: mark with non-root IAM (resource policy Deny); root bypasses Deny
+- Grafana: admin/Skills53# WSI Dashboard + CloudWatch DS

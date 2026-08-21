@@ -29,36 +29,64 @@ data "aws_iam_policy_document" "node_assume" {
   }
 }
 
-resource "aws_iam_role" "eks_node" {
-  name               = "gj2026-eks-node-role"
+# Separate node roles so aws-auth username can match CN:
+# system:node:gj2026.{{SessionName}}.{addon|app}.node  (SessionName = instance-id)
+resource "aws_iam_role" "eks_addon_node" {
+  name               = "gj2026-eks-addon-node-role"
   assume_role_policy = data.aws_iam_policy_document.node_assume.json
   tags               = local.common_tags
 }
 
+resource "aws_iam_role" "eks_app_node" {
+  name               = "gj2026-eks-app-node-role"
+  assume_role_policy = data.aws_iam_policy_document.node_assume.json
+  tags               = local.common_tags
+}
+
+locals {
+  node_role_names = {
+    addon = aws_iam_role.eks_addon_node.name
+    app   = aws_iam_role.eks_app_node.name
+  }
+  node_role_ids = {
+    addon = aws_iam_role.eks_addon_node.id
+    app   = aws_iam_role.eks_app_node.id
+  }
+  node_role_arns = {
+    addon = aws_iam_role.eks_addon_node.arn
+    app   = aws_iam_role.eks_app_node.arn
+  }
+}
+
 resource "aws_iam_role_policy_attachment" "node_worker" {
-  role       = aws_iam_role.eks_node.name
+  for_each   = local.node_role_names
+  role       = each.value
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
 }
 
 resource "aws_iam_role_policy_attachment" "node_cni" {
-  role       = aws_iam_role.eks_node.name
+  for_each   = local.node_role_names
+  role       = each.value
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
 }
 
 resource "aws_iam_role_policy_attachment" "node_ecr" {
-  role       = aws_iam_role.eks_node.name
+  for_each   = local.node_role_names
+  role       = each.value
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
 resource "aws_iam_role_policy_attachment" "node_ssm" {
-  role       = aws_iam_role.eks_node.name
+  for_each   = local.node_role_names
+  role       = each.value
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# Book app uses node instance role (IMDS) — avoid broken Pod Identity credential path
+# Book app uses app-node instance role (IMDS)
 resource "aws_iam_role_policy" "node_ddb_cw" {
-  name = "gj2026-node-ddb-cw"
-  role = aws_iam_role.eks_node.id
+  for_each = local.node_role_ids
+  name     = "gj2026-node-ddb-cw"
+  role     = each.value
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -95,6 +123,16 @@ resource "aws_iam_role_policy" "node_ddb_cw" {
           "logs:PutLogEvents",
           "logs:DescribeLogStreams",
           "logs:DescribeLogGroups"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:GetMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:DescribeAlarms"
         ]
         Resource = "*"
       }

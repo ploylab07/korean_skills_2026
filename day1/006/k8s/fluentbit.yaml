@@ -15,7 +15,7 @@ data:
         Flush         1
         Log_Level     info
         Daemon        off
-        Parsers_File  parsers.conf
+        Parsers_File  /fluent-bit/etc/parsers.conf
 
     [INPUT]
         Name              tail
@@ -27,53 +27,52 @@ data:
         DB                /var/log/flb_book.db
 
     [FILTER]
-        Name                kubernetes
-        Match               book.raw
-        Kube_URL            https://kubernetes.default.svc:443
-        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
-        Merge_Log           On
-        Keep_Log            On
-
-    [FILTER]
         Name    grep
         Match   book.raw
         Exclude log /health
+        Exclude message /health
 
     [FILTER]
         Name          parser
         Match         book.raw
         Key_Name      log
         Parser        book_access
-        Reserve_Data  Off
+        Reserve_Data  On
 
     [FILTER]
-        Name          rewrite_tag
+        Name          parser
         Match         book.raw
-        Rule          $remote_addr ^10\.0\.10\. book.a false
-        Rule          $remote_addr ^10\.0\.11\. book.b false
-        Emitter_Name  re_emitted
+        Key_Name      message
+        Parser        book_access
+        Reserve_Data  On
 
     [OUTPUT]
         Name                cloudwatch_logs
-        Match               book.a
+        Match               book.raw
         region              ap-northeast-2
         log_group_name      /eks/book-svc/access
-        log_stream_name     /book-svc/ap-northeast-2a
-        auto_create_group   On
-
-    [OUTPUT]
-        Name                cloudwatch_logs
-        Match               book.b
-        region              ap-northeast-2
-        log_group_name      /eks/book-svc/access
-        log_stream_name     /book-svc/ap-northeast-2b
+        log_stream_name     STREAM_PLACEHOLDER
         auto_create_group   On
   parsers.conf: |
     [PARSER]
         Name        book_access
         Format      regex
         Regex       ^.*access method=(?<method>\S+) path=(?<path>\S+) status=(?<status_code>\d+) .* remote_addr=(?<remote_addr>\S+).*
+  # Stream names at runtime: /book-svc/ap-northeast-2a and /book-svc/ap-northeast-2b
+  # (IMDS AZ → STREAM_PLACEHOLDER substitution in entrypoint.sh)
+  entrypoint.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+    AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/availability-zone)
+    STREAM="/book-svc/${AZ}"
+    echo "AWS for Fluent Bit (custom) STREAM_NAME=${STREAM}"
+    sed "s|STREAM_PLACEHOLDER|${STREAM}|g" /fluent-bit/etc/fluent-bit.conf > /tmp/fluent-bit.conf
+    exec /fluent-bit/bin/fluent-bit \
+      -e /fluent-bit/firehose.so \
+      -e /fluent-bit/cloudwatch.so \
+      -e /fluent-bit/kinesis.so \
+      -c /tmp/fluent-bit.conf
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -95,6 +94,7 @@ spec:
       containers:
         - name: fluent-bit
           image: IMAGE_ECR/ecr-public/aws-observability/aws-for-fluent-bit:stable
+          command: ["/bin/bash", "/fluent-bit/etc/entrypoint.sh"]
           volumeMounts:
             - name: varlog
               mountPath: /var/log
@@ -110,3 +110,4 @@ spec:
         - name: config
           configMap:
             name: fluent-bit-config
+            defaultMode: 0755
