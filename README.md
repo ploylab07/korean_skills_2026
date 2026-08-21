@@ -4,6 +4,8 @@
 
 이 README만 따라 하면, **Terraform을 PC에 따로 설치하지 않고** clone → AWS 배포 → 삭제까지 처음부터 끝까지 해볼 수 있습니다.
 
+**Windows 대회/배포만 빠르게:** [docs/WINDOWS_DEPLOY.md](docs/WINDOWS_DEPLOY.md) — `.\start.cmd` 설정·과제 목록·Apply/Destroy 절차
+
 ---
 
 ## 목차
@@ -60,7 +62,9 @@ korean_skills_2026/
 ├── day3/                  ← Day 3 과제
 ├── build/                 ← Terraform 자동 다운로드 도구 (상세: build/README.md)
 ├── docs/                  ← 과제별 상세 설명서
+│   ├── WINDOWS_DEPLOY.md  ← Windows start.cmd 배포 가이드
 │   └── TERRAFORM_GUIDE.md
+├── start.cmd              ← Windows 원클릭 배포 (과제 선택 → apply)
 └── .cursor/rules/         ← Cursor AI 작업 규칙
 ```
 
@@ -572,6 +576,7 @@ rm -rf build/.bin
 
 | 문서 | 내용 |
 |------|------|
+| [docs/WINDOWS_DEPLOY.md](docs/WINDOWS_DEPLOY.md) | Windows `start.cmd` 설정·과제 목록·배포 |
 | [build/README.md](build/README.md) | Terraform 래퍼·setup-aws 상세 설명 |
 | [docs/TERRAFORM_GUIDE.md](docs/TERRAFORM_GUIDE.md) | 2023 WSI 과제 아키텍처·요구사항 매핑 |
 | [Terraform 공식 문서](https://developer.hashicorp.com/terraform/docs) | 공식 레퍼런스 |
