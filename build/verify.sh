@@ -37,8 +37,9 @@ run_check "setup-aws exists" test -x "$ROOT/setup-aws"
 run_check "build/terraform exists" test -x "$ROOT/build/terraform"
 run_check ".env.example exists" test -f "$ROOT/.env.example"
 
-# 2. Version
-if "$TF" version 2>&1 | grep -q "Terraform v"; then
+# 2. Version (avoid pipefail+grep -q SIGPIPE flake)
+TF_VER="$("$TF" version 2>&1 || true)"
+if [[ "$TF_VER" == *"Terraform v"* ]]; then
   pass "terraform version runs"
 else
   fail "terraform version runs"
