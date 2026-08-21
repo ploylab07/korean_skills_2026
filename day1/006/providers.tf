@@ -16,7 +16,7 @@ data "aws_availability_zones" "available" {
 locals {
   bib          = "006"
   account_id   = data.aws_caller_identity.current.account_id
-  region       = data.aws_region.current.id
+  region       = "ap-northeast-2"
   azs          = ["ap-northeast-2a", "ap-northeast-2b"]
   cluster_name = "gj2026-eks-cluster"
   bucket_name  = "gj2026-static-${local.bib}"

@@ -139,6 +139,8 @@ resource "aws_eks_node_group" "addon" {
     aws_iam_role_policy_attachment.node_cni,
     aws_iam_role_policy_attachment.node_ecr,
     kubernetes_config_map_v1.aws_auth,
+    kubernetes_cluster_role_binding_v1.eks_authenticator_aws_auth,
+    module.hostname_bootstrap_image,
   ]
 
   tags = merge(local.common_tags, { Name = "gj2026-eks-addon-nodegroup" })
@@ -178,6 +180,8 @@ resource "aws_eks_node_group" "app" {
     aws_iam_role_policy_attachment.node_cni,
     aws_iam_role_policy_attachment.node_ecr,
     kubernetes_config_map_v1.aws_auth,
+    kubernetes_cluster_role_binding_v1.eks_authenticator_aws_auth,
+    module.hostname_bootstrap_image,
   ]
 
   tags = merge(local.common_tags, { Name = "gj2026-eks-app-nodegroup" })

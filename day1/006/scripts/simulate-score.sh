@@ -64,9 +64,9 @@ fi
 # ----- 3 Database (2.5) -----
 # 3-1 DynamoDB 1.0
 if has "$ROOT/dynamodb.tf" 'name\s*=\s*"books"' \
-  && has "$ROOT/dynamodb.tf" 'hash_key\s*=\s*"booking_id"' \
+  && (has "$ROOT/dynamodb.tf" 'hash_key\s*=\s*"booking_id"' || has "$ROOT/dynamodb.tf" 'attribute_name\s*=\s*"booking_id"') \
   && has "$ROOT/dynamodb.tf" 'client_id-index' \
-  && has "$ROOT/dynamodb.tf" 'hash_key\s*=\s*"client_id"'; then
+  && (has "$ROOT/dynamodb.tf" 'hash_key\s*=\s*"client_id"' || has "$ROOT/dynamodb.tf" 'attribute_name\s*=\s*"client_id"'); then
   ok 1.0 "3-1 DynamoDB Configuration"
 else
   bad 1.0 "3-1 DynamoDB Configuration"

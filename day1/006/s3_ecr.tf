@@ -78,3 +78,78 @@ resource "aws_ecr_repository" "hostname_bootstrap" {
 
   tags = merge(local.common_tags, { Name = "hostname-bootstrap" })
 }
+
+# Push hostname-bootstrap BEFORE node groups (Bottlerocket essential bootstrap).
+# Windows contest PCs have no Docker Desktop — CodeBuild builds/pushes.
+module "hostname_bootstrap_image" {
+  source = "../../build/modules/ecr-codebuild"
+
+  name_prefix         = "gj2026-hostname-bootstrap"
+  region              = local.region
+  account_id          = local.account_id
+  ecr_repository_name = aws_ecr_repository.hostname_bootstrap.name
+  ecr_repository_url  = aws_ecr_repository.hostname_bootstrap.repository_url
+  context_dir         = "${path.module}/bootstrap"
+  dockerfile          = "Dockerfile"
+  image_tags          = ["latest"]
+  # Default module excludes *.sh — we need set-hostname.sh in the image context.
+  excludes = [
+    ".terraform",
+    ".terraform/**",
+    "*.tf",
+    "*.tfvars",
+    "*.md",
+    ".git",
+    ".git/**",
+    "terraform.tfstate*",
+    ".build",
+    ".build/**",
+  ]
+
+  depends_on = [aws_ecr_repository.hostname_bootstrap]
+}
+
+# Book image for Windows apply (no local Docker). Nodes do not need this to join,
+# but post-deploy / workloads do — build during apply so start.cmd is enough.
+module "book_image" {
+  source = "../../build/modules/ecr-codebuild"
+
+  name_prefix         = "gj2026-book"
+  region              = local.region
+  account_id          = local.account_id
+  ecr_repository_name = aws_ecr_repository.book.name
+  ecr_repository_url  = aws_ecr_repository.book.repository_url
+  context_dir         = path.module
+  dockerfile          = "Dockerfile"
+  image_tags          = ["latest"]
+  excludes = [
+    ".terraform",
+    ".terraform/**",
+    "*.tf",
+    "*.tfvars",
+    "*.md",
+    "*.sh",
+    "scripts",
+    "scripts/**",
+    "mark.sh",
+    "run-mark.sh",
+    "post-deploy.sh",
+    "deploy-k8s.sh",
+    "build-push-image.sh",
+    "fix-node-names.sh",
+    "bootstrap",
+    "bootstrap/**",
+    "k8s",
+    "k8s/**",
+    "build",
+    "build/**",
+    ".git",
+    ".git/**",
+    "terraform.tfstate*",
+    "*.pdf",
+    "main.jpeg",
+    "index.html",
+  ]
+
+  depends_on = [aws_ecr_repository.book]
+}
