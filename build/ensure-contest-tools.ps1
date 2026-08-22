@@ -221,23 +221,134 @@ function Install-HelmPortable {
     return $dest
 }
 
+function Test-IsAdmin {
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object Security.Principal.WindowsPrincipal $id
+        return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+    catch { return $false }
+}
+
+function Wait-MsiIdle {
+    param([int]$TimeoutSec = 60)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Process -Name "msiexec" -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+        Write-Host "Waiting for other MSI installer to finish ..." -ForegroundColor DarkYellow
+        Start-Sleep -Seconds 3
+    }
+}
+
+function Remove-StaleAwsCli {
+    Write-Host "Removing stale AWS CLI (if any) ..." -ForegroundColor Cyan
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+        & winget uninstall --id Amazon.AWSCLI -e --accept-source-agreements --disable-interactivity 2>&1 | Out-Null
+    }
+    $uninstallRoots = @(
+        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )
+    foreach ($root in $uninstallRoots) {
+        Get-ItemProperty $root -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like '*AWS Command Line Interface*' } |
+            ForEach-Object {
+                $raw = "$($_.UninstallString)".Trim()
+                if (-not $raw) { return }
+                Write-Host ("  uninstall: {0}" -f $_.DisplayName) -ForegroundColor DarkYellow
+                if ($raw -match '\{[0-9A-Fa-f-]{36}\}') {
+                    $guid = $Matches[0]
+                    $null = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/x", $guid, "/qn", "/norestart") -Wait -PassThru
+                }
+                elseif ($raw -match 'msiexec\.exe') {
+                    $args = $raw -replace '(?i)/I', '/X' -replace 'msiexec\.exe', '' -split '\s+' | Where-Object { $_ }
+                    $null = Start-Process -FilePath "msiexec.exe" -ArgumentList $args -Wait -PassThru
+                }
+            }
+    }
+    Wait-MsiIdle -TimeoutSec 30
+}
+
+function Wait-ForAwsExe {
+    param([int]$TimeoutSec = 90)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        Refresh-ProcessPath
+        $aws = Find-AwsExePath
+        if ($aws) { return $aws }
+        Start-Sleep -Seconds 2
+    }
+    return $null
+}
+
+function Invoke-AwsCliMsiExec {
+    param(
+        [Parameter(Mandatory = $true)][string]$MsiPath,
+        [ValidateSet('quiet', 'passive')][string]$Mode = 'quiet',
+        [switch]$Elevated
+    )
+    $modeArg = if ($Mode -eq 'passive') { '/passive' } else { '/qn' }
+    $args = @("/i", $MsiPath, $modeArg, "/norestart", "REBOOT=ReallySuppress", "ALLUSERS=1")
+    $log = Join-Path ([System.IO.Path]::GetTempPath()) ("awscli-msi-{0}.log" -f $Mode)
+    $args += @("/l*v", $log)
+    Write-Host ("  msiexec {0} (log: {1})" -f $modeArg, $log) -ForegroundColor DarkGray
+    $startParams = @{
+        FilePath     = "msiexec.exe"
+        ArgumentList = $args
+        Wait         = $true
+        PassThru     = $true
+    }
+    if ($Elevated -and -not (Test-IsAdmin)) {
+        $startParams.Verb = 'RunAs'
+    }
+    $p = Start-Process @startParams
+    return [int]$p.ExitCode
+}
+
 function Install-AwsCliMsi {
+    Wait-MsiIdle -TimeoutSec 60
+    Remove-StaleAwsCli
+
     $msi = Join-Path ([System.IO.Path]::GetTempPath()) "AWSCLIV2.msi"
     Write-Host "Downloading AWS CLI v2 MSI ..." -ForegroundColor Yellow
     Invoke-WebFile -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi
+
+    $isAdmin = Test-IsAdmin
+    if (-not $isAdmin) {
+        Write-Host "[!] Not Administrator. UAC prompt may appear for AWS CLI MSI — click Yes." -ForegroundColor Yellow
+    }
+
     Write-Host "Installing AWS CLI v2 (quiet) ..." -ForegroundColor Yellow
-    $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", $msi, "/qn", "/norestart") -Wait -PassThru
+    $code = Invoke-AwsCliMsiExec -MsiPath $msi -Mode 'quiet' -Elevated:(-not $isAdmin)
+    $aws = Wait-ForAwsExe -TimeoutSec 30
+    if ($aws) {
+        Remove-Item $msi -Force -ErrorAction SilentlyContinue
+        return $aws
+    }
+
+    if ($code -ne 0 -and $code -ne 3010) {
+        Write-Host ("AWS CLI quiet MSI exit {0}; retrying passive ..." -f $code) -ForegroundColor Yellow
+        Wait-MsiIdle -TimeoutSec 30
+        $code = Invoke-AwsCliMsiExec -MsiPath $msi -Mode 'passive' -Elevated:(-not $isAdmin)
+        $aws = Wait-ForAwsExe -TimeoutSec 60
+        if ($aws) {
+            Remove-Item $msi -Force -ErrorAction SilentlyContinue
+            return $aws
+        }
+    }
+
     Remove-Item $msi -Force -ErrorAction SilentlyContinue
-    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
-        throw ("AWS CLI MSI install failed (exit {0})" -f $p.ExitCode)
+    if ($code -eq 1603) {
+        throw @"
+AWS CLI MSI failed (exit 1603). Common fixes:
+  1) Open PowerShell as Administrator (Run as administrator)
+  2) Close other installers, then re-run .\start.cmd
+  3) Manual: download https://awscli.amazonaws.com/AWSCLIV2.msi and double-click install
+  4) Or: winget install -e --id Amazon.AWSCLI --scope user
+"@
     }
-    $awsExe = Join-Path ${env:ProgramFiles} "Amazon\AWSCLIV2\aws.exe"
-    $deadline = (Get-Date).AddSeconds(90)
-    while ((Get-Date) -lt $deadline) {
-        if (Test-Path -LiteralPath $awsExe) { return $awsExe }
-        Start-Sleep -Seconds 2
-    }
-    throw "AWS CLI MSI finished but aws.exe not found"
+    throw ("AWS CLI MSI install failed (exit {0})" -f $code)
 }
 
 function Install-GitSilent {
@@ -263,20 +374,29 @@ function Install-GitSilent {
     throw "Git install finished but bash.exe not found"
 }
 
-function Install-WithWinget([string]$Id, [string]$Label) {
+function Install-WithWinget {
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [ValidateSet('auto', 'user', 'machine')][string]$Scope = 'auto'
+    )
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if (-not $winget) { return $false }
     Write-Host ("Installing {0} via winget ({1}) ..." -f $Label, $Id) -ForegroundColor Yellow
     $scopeArgs = @()
-    $isAdmin = $false
-    try {
-        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-        $p = New-Object Security.Principal.WindowsPrincipal $id
-        $isAdmin = $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($Scope -eq 'user') {
+        $scopeArgs = @("--scope", "user")
     }
-    catch { }
-    if ($isAdmin) { $scopeArgs = @("--scope", "machine") }
-    & winget install --id $Id -e @scopeArgs --accept-package-agreements --accept-source-agreements --disable-interactivity
+    elseif ($Scope -eq 'machine') {
+        $scopeArgs = @("--scope", "machine")
+    }
+    elseif (Test-IsAdmin) {
+        $scopeArgs = @("--scope", "machine")
+    }
+    else {
+        $scopeArgs = @("--scope", "user")
+    }
+    & winget install --id $Id -e @scopeArgs --accept-package-agreements --accept-source-agreements --disable-interactivity --force
     return ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) # already installed
 }
 
@@ -298,6 +418,8 @@ function Get-StandardToolPaths {
         (Join-Path $pf "Amazon")
         (Join-Path $pf86 "Amazon")
         (Join-Path $local "Programs\Amazon")
+        (Join-Path $local "Amazon")
+        (Join-Path $env:USERPROFILE "AppData\Local\Programs\Amazon")
         (Join-Path $local "Microsoft\WinGet\Packages")
         $pf
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
@@ -316,6 +438,8 @@ function Find-AwsExePath {
         (Join-Path $ctx.Pf "Amazon\AWSCLIV2\aws.exe")
         (Join-Path $ctx.Pf86 "Amazon\AWSCLIV2\aws.exe")
         (Join-Path $ctx.Local "Programs\Amazon\AWSCLIV2\aws.exe")
+        (Join-Path $ctx.Local "Amazon\AWSCLIV2\aws.exe")
+        (Join-Path $env:USERPROFILE "AppData\Local\Programs\Amazon\AWSCLIV2\aws.exe")
     ) -SearchRoots $ctx.AwsSearchRoots -ExeName "aws.exe"
 }
 
@@ -358,10 +482,19 @@ function Install-AwsIfMissing {
     Refresh-ProcessPath
     $aws = Find-AwsExePath
     if ($aws) { return $aws }
-    try { $null = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" } catch { }
+
+    $isAdmin = Test-IsAdmin
+    if ($isAdmin) {
+        try { $null = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" -Scope machine } catch { }
+    }
+    else {
+        Write-Host "[!] Non-admin session: trying user-scope winget for AWS CLI ..." -ForegroundColor Yellow
+        try { $null = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" -Scope user } catch { }
+    }
     Refresh-ProcessPath
     $aws = Find-AwsExePath
     if ($aws) { return $aws }
+
     Write-Host "AWS CLI not found after winget; trying MSI ..." -ForegroundColor Yellow
     return Install-AwsCliMsi
 }
@@ -587,10 +720,13 @@ function Ensure-ContestTools {
     if ($still.Count -gt 0) {
         Write-Host "[!] Still missing after install attempt:" -ForegroundColor Red
         foreach ($m in $still) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
-        Write-Host "Manual fix (Admin PowerShell):" -ForegroundColor Yellow
-        Write-Host "  msiexec /i https://awscli.amazonaws.com/AWSCLIV2.msi /qn" -ForegroundColor Yellow
-        Write-Host "  Or: winget install -e --id Amazon.AWSCLI Git.Git Helm.Helm --accept-package-agreements" -ForegroundColor Yellow
-        Write-Host "Recommended: git clone (not ZIP) then git pull origin master" -ForegroundColor Yellow
+        Write-Host "Manual fix:" -ForegroundColor Yellow
+        if (-not (Test-IsAdmin)) {
+            Write-Host "  1) Right-click PowerShell -> Run as administrator" -ForegroundColor Yellow
+        }
+        Write-Host "  2) winget install -e --id Amazon.AWSCLI --scope user --accept-package-agreements" -ForegroundColor Yellow
+        Write-Host "  3) Or download + run: https://awscli.amazonaws.com/AWSCLIV2.msi" -ForegroundColor Yellow
+        Write-Host "  4) git clone (not ZIP): git pull origin master" -ForegroundColor Yellow
         throw "Contest tools missing"
     }
 
