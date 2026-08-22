@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wsc2026 day1/003 master nested stack (2026 Korean Skills cloud computing task 1)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '003'
+    Description: 비번호 (S3 bucket suffix)
+  BucketSuffix:
+    Type: String
+    Default: skil
+    Description: 영문 4자리 (wsc2026-static-<suffix>-<bibun>-bucket)
+  CloudFrontPrefixListId:
+    Type: String
+    Default: pl-58a04531
+    Description: CloudFront origin-facing managed prefix list (ap-northeast-2)
+  GrafanaAdminPassword:
+    Type: String
+    Default: 'Skills$#$@!'
+    NoEcho: true
+    Description: Grafana admin password (kubectl/helm post-deploy)
+
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/network.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        CloudFrontPrefixListId: !Ref CloudFrontPrefixListId
+
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/storage.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        BucketSuffix: !Ref BucketSuffix
+
+  EksStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - NetworkStack
+      - StorageStack
+    Properties:
+      TemplateURL: templates/eks.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        VpcCidr: !GetAtt NetworkStack.Outputs.VpcCidr
+        HubSubnetA: !GetAtt NetworkStack.Outputs.HubSubnetA
+        HubSubnetB: !GetAtt NetworkStack.Outputs.HubSubnetB
+        AppSubnetA: !GetAtt NetworkStack.Outputs.AppSubnetA
+        AppSubnetB: !GetAtt NetworkStack.Outputs.AppSubnetB
+        AlbSecurityGroupId: !GetAtt NetworkStack.Outputs.AlbSecurityGroupId
+        BastionSecurityGroupId: !GetAtt NetworkStack.Outputs.BastionSecurityGroupId
+        MarkSecurityGroupId: !GetAtt NetworkStack.Outputs.MarkSecurityGroupId
+        EksKmsKeyArn: !GetAtt StorageStack.Outputs.EksKmsKeyArn
+        BookPodRoleArn: !GetAtt StorageStack.Outputs.BookPodRoleArn
+
+  EdgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - NetworkStack
+      - StorageStack
+      - EksStack
+    Properties:
+      TemplateURL: templates/edge.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        HubSubnetA: !GetAtt NetworkStack.Outputs.HubSubnetA
+        HubSubnetB: !GetAtt NetworkStack.Outputs.HubSubnetB
+        BastionSecurityGroupId: !GetAtt NetworkStack.Outputs.BastionSecurityGroupId
+        MarkSecurityGroupId: !GetAtt NetworkStack.Outputs.MarkSecurityGroupId
+        AlbSecurityGroupId: !GetAtt NetworkStack.Outputs.AlbSecurityGroupId
+        BastionInstanceProfileName: !GetAtt EksStack.Outputs.BastionInstanceProfileName
+        DynamoDbTableName: !GetAtt StorageStack.Outputs.DynamoDbTableName
+        BookFunctionRoleArn: !GetAtt StorageStack.Outputs.BookFunctionRoleArn
+        FunctionKmsKeyArn: !GetAtt StorageStack.Outputs.FunctionKmsKeyArn
+
+Outputs:
+  Bibun:
+    Value: !Ref Bibun
+  GrafanaAdminPasswordHint:
+    Value: 'Skills$#$@! (override with GrafanaAdminPassword)'
+  VpcId:
+    Value: !GetAtt NetworkStack.Outputs.VpcId
+  S3BucketName:
+    Value: !GetAtt StorageStack.Outputs.S3BucketName
+  S3BucketArn:
+    Value: !GetAtt StorageStack.Outputs.S3BucketArn
+  S3BucketRegionalDomainName:
+    Value: !GetAtt StorageStack.Outputs.S3BucketRegionalDomainName
+  BucketKmsKeyArn:
+    Value: !GetAtt StorageStack.Outputs.BucketKmsKeyArn
+  EcrRepositoryUri:
+    Value: !GetAtt StorageStack.Outputs.EcrRepositoryUri
+  DynamoDbTableName:
+    Value: !GetAtt StorageStack.Outputs.DynamoDbTableName
+  ClusterName:
+    Value: !GetAtt EksStack.Outputs.ClusterName
+  ClusterEndpoint:
+    Value: !GetAtt EksStack.Outputs.ClusterEndpoint
+  BastionInstanceId:
+    Value: !GetAtt EdgeStack.Outputs.BastionInstanceId
+  AlbDnsName:
+    Value: !GetAtt EdgeStack.Outputs.AlbDnsName
+  LambdaFunctionUrl:
+    Value: !GetAtt EdgeStack.Outputs.LambdaFunctionUrl
+  BookTargetGroupArn:
+    Value: !GetAtt EdgeStack.Outputs.BookTargetGroupArn
+  AlbSecurityGroupId:
+    Value: !GetAtt NetworkStack.Outputs.AlbSecurityGroupId

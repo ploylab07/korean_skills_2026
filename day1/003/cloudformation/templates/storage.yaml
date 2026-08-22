@@ -1,0 +1,869 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wsc2026 day1/003 storage (KMS without root/kms:*, S3, ECR, DynamoDB)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '003'
+  BucketSuffix:
+    Type: String
+    Default: skil
+    Description: 영문 4자리 (S3 버킷명 wsc2026-static-<suffix>-<bibun>-bucket)
+
+Resources:
+  KmsAdminRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wsc2026-kms-admin-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: kms-admin-inline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:CreateAlias
+                  - kms:CreateGrant
+                  - kms:DescribeKey
+                  - kms:EnableKey
+                  - kms:EnableKeyRotation
+                  - kms:DisableKey
+                  - kms:DisableKeyRotation
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListAliases
+                  - kms:ListGrants
+                  - kms:ListKeyPolicies
+                  - kms:ListResourceTags
+                  - kms:PutKeyPolicy
+                  - kms:ScheduleKeyDeletion
+                  - kms:CancelKeyDeletion
+                  - kms:TagResource
+                  - kms:UntagResource
+                  - kms:UpdateAlias
+                  - kms:UpdateKeyDescription
+                  - kms:DeleteAlias
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  - kms:ReEncryptFrom
+                  - kms:ReEncryptTo
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                Resource: '*'
+
+  KmsAdminInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Name: wsc2026-kms-admin-profile
+      Roles:
+        - !Ref KmsAdminRole
+
+  BookPodRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wsc2026-book-pod-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: pods.eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+
+  BookFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wsc2026-book-function-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+
+  DbKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: DynamoDB encryption key
+      EnableKeyRotation: true
+      PendingWindowInDays: 7
+      BypassPolicyLockoutSafetyCheck: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAccountAdministration
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowAccountDecryptPlaintext
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:CreateGrant
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowKmsAdminRole
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KmsAdminRole.Arn
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+          - Sid: AllowDynamoDBUse
+            Effect: Allow
+            Principal:
+              Service: dynamodb.amazonaws.com
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:DescribeKey
+              - kms:CreateGrant
+            Resource: '*'
+          - Sid: AllowBookPodRoleUse
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BookPodRole.Arn
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:GenerateDataKey
+              - kms:DescribeKey
+            Resource: '*'
+          - Sid: AllowBookFunctionRoleUse
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BookFunctionRole.Arn
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: wsc2026-db-kms
+
+  DbKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wsc2026-db-kms
+      TargetKeyId: !Ref DbKmsKey
+
+  EcrKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: ECR encryption key
+      EnableKeyRotation: true
+      PendingWindowInDays: 7
+      BypassPolicyLockoutSafetyCheck: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAccountAdministration
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowAccountDecryptPlaintext
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:CreateGrant
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowKmsAdminRole
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KmsAdminRole.Arn
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+          - Sid: AllowECRUse
+            Effect: Allow
+            Principal:
+              Service: ecr.amazonaws.com
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:DescribeKey
+              - kms:CreateGrant
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: wsc2026-ecr-kms
+
+  EcrKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wsc2026-ecr-kms
+      TargetKeyId: !Ref EcrKmsKey
+
+  EksKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: EKS secrets encryption key
+      EnableKeyRotation: true
+      PendingWindowInDays: 7
+      BypassPolicyLockoutSafetyCheck: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAccountAdministration
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowAccountDecryptPlaintext
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:CreateGrant
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowKmsAdminRole
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KmsAdminRole.Arn
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+          - Sid: AllowEKSUse
+            Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:DescribeKey
+              - kms:CreateGrant
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: wsc2026-eks-kms
+
+  EksKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wsc2026-eks-kms
+      TargetKeyId: !Ref EksKmsKey
+
+  BucketKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: S3 bucket encryption key
+      EnableKeyRotation: true
+      PendingWindowInDays: 7
+      BypassPolicyLockoutSafetyCheck: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAccountAdministration
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowAccountDecryptPlaintext
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:CreateGrant
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowKmsAdminRole
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KmsAdminRole.Arn
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+          - Sid: AllowS3Use
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:DescribeKey
+              - kms:CreateGrant
+            Resource: '*'
+          - Sid: AllowCloudFrontUse
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey
+              - kms:DescribeKey
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: wsc2026-bucket-kms
+
+  BucketKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wsc2026-bucket-kms
+      TargetKeyId: !Ref BucketKmsKey
+
+  FunctionKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Lambda environment encryption key
+      EnableKeyRotation: true
+      PendingWindowInDays: 7
+      BypassPolicyLockoutSafetyCheck: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAccountAdministration
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowAccountDecryptPlaintext
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:CreateGrant
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: AllowKmsAdminRole
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt KmsAdminRole.Arn
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DescribeKey
+              - kms:EnableKey
+              - kms:EnableKeyRotation
+              - kms:DisableKey
+              - kms:DisableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListAliases
+              - kms:ListGrants
+              - kms:ListKeyPolicies
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+              - kms:DeleteAlias
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+            Resource: '*'
+          - Sid: AllowLambdaUse
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:DescribeKey
+              - kms:CreateGrant
+            Resource: '*'
+          - Sid: AllowBookFunctionRoleUse
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BookFunctionRole.Arn
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource: '*'
+          - Sid: AllowLogs
+            Effect: Allow
+            Principal:
+              Service: !Sub 'logs.${AWS::Region}.amazonaws.com'
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:GenerateDataKey
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              ArnLike:
+                kms:EncryptionContext:aws:logs:arn: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+      Tags:
+        - Key: Name
+          Value: wsc2026-function-kms
+
+  FunctionKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wsc2026-function-kms
+      TargetKeyId: !Ref FunctionKmsKey
+
+  StaticBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'wsc2026-static-${BucketSuffix}-${Bibun}-bucket'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt BucketKmsKey.Arn
+            BucketKeyEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'wsc2026-static-${BucketSuffix}-${Bibun}-bucket'
+        - Key: Project
+          Value: wsc2026
+
+  BookEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: wsc2026-book-ecr
+      ImageTagMutability: MUTABLE_WITH_EXCLUSION
+      ImageTagMutabilityExclusionFilters:
+        - Filter: v1*
+          FilterType: WILDCARD
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: KMS
+        KmsKey: !GetAtt EcrKmsKey.Arn
+      Tags:
+        - Key: Name
+          Value: wsc2026-book-ecr
+
+  BookTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: wsc2026-book-table
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      AttributeDefinitions:
+        - AttributeName: client_id
+          AttributeType: S
+        - AttributeName: booking_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: client_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: booking_id-index
+          KeySchema:
+            - AttributeName: booking_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt DbKmsKey.Arn
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+        RecoveryPeriodInDays: 35
+      ResourcePolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowPodPutItem
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BookPodRole.Arn
+            Action: dynamodb:PutItem
+            Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/wsc2026-book-table'
+          - Sid: AllowFunctionQuery
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BookFunctionRole.Arn
+            Action: dynamodb:Query
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/wsc2026-book-table'
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/wsc2026-book-table/index/*'
+      Tags:
+        - Key: Name
+          Value: wsc2026-book-table
+
+  BookPodPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: wsc2026-book-pod-policy
+      Roles:
+        - !Ref BookPodRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: dynamodb:PutItem
+            Resource: !GetAtt BookTable.Arn
+
+  BookFunctionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: wsc2026-book-function-policy
+      Roles:
+        - !Ref BookFunctionRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/wsc2026-book-get-function:*'
+          - Effect: Allow
+            Action: dynamodb:Query
+            Resource:
+              - !GetAtt BookTable.Arn
+              - !Sub '${BookTable.Arn}/index/*'
+
+Outputs:
+  S3BucketName:
+    Value: !Ref StaticBucket
+  S3BucketArn:
+    Value: !GetAtt StaticBucket.Arn
+  S3BucketRegionalDomainName:
+    Value: !GetAtt StaticBucket.RegionalDomainName
+  BucketKmsKeyArn:
+    Value: !GetAtt BucketKmsKey.Arn
+  BucketKmsKeyId:
+    Value: !Ref BucketKmsKey
+  DbKmsKeyArn:
+    Value: !GetAtt DbKmsKey.Arn
+  EcrKmsKeyArn:
+    Value: !GetAtt EcrKmsKey.Arn
+  EksKmsKeyArn:
+    Value: !GetAtt EksKmsKey.Arn
+  FunctionKmsKeyArn:
+    Value: !GetAtt FunctionKmsKey.Arn
+  DynamoDbTableName:
+    Value: !Ref BookTable
+  DynamoDbTableArn:
+    Value: !GetAtt BookTable.Arn
+  EcrRepositoryUri:
+    Value: !GetAtt BookEcrRepository.RepositoryUri
+  EcrRepositoryName:
+    Value: !Ref BookEcrRepository
+  BookPodRoleArn:
+    Value: !GetAtt BookPodRole.Arn
+  BookFunctionRoleArn:
+    Value: !GetAtt BookFunctionRole.Arn
+  BookFunctionRoleName:
+    Value: !Ref BookFunctionRole

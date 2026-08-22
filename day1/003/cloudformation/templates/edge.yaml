@@ -1,0 +1,224 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wsc2026 day1/003 edge (Lambda Function URL, bastion, book ALB)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '003'
+  VpcId:
+    Type: String
+  HubSubnetA:
+    Type: String
+  HubSubnetB:
+    Type: String
+  BastionSecurityGroupId:
+    Type: String
+  MarkSecurityGroupId:
+    Type: String
+  AlbSecurityGroupId:
+    Type: String
+  BastionInstanceProfileName:
+    Type: String
+  DynamoDbTableName:
+    Type: String
+  BookFunctionRoleArn:
+    Type: String
+  FunctionKmsKeyArn:
+    Type: String
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/wsc2026-book-get-function
+      RetentionInDays: 7
+      KmsKeyId: !Ref FunctionKmsKeyArn
+
+  BookGetFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LambdaLogGroup
+    Properties:
+      FunctionName: wsc2026-book-get-function
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !Ref BookFunctionRoleArn
+      Timeout: 30
+      MemorySize: 256
+      KmsKeyArn: !Ref FunctionKmsKeyArn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref DynamoDbTableName
+      Tags:
+        - Key: Name
+          Value: wsc2026-book-get-function
+        - Key: Project
+          Value: wsc2026
+      Code:
+        ZipFile: |
+          import json, os
+          from collections import OrderedDict
+          from datetime import datetime, timezone, timedelta
+          import boto3
+          TABLE_NAME = os.environ.get("TABLE_NAME", "wsc2026-book-table")
+          REGION = os.environ.get("AWS_REGION", "ap-northeast-2")
+          dynamodb = boto3.resource("dynamodb", region_name=REGION)
+          table = dynamodb.Table(TABLE_NAME)
+          KST = timezone(timedelta(hours=9))
+          def _format_created_at(value):
+              if value is None: return ""
+              if isinstance(value, (int, float)):
+                  dt = datetime.fromtimestamp(value, tz=KST)
+              else:
+                  text = str(value)
+                  try:
+                      if text.endswith("Z"):
+                          dt = datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(KST)
+                      elif "+" in text or text.endswith("KST"):
+                          dt = datetime.fromisoformat(text.replace(" KST", "+09:00")).astimezone(KST)
+                      else:
+                          dt = datetime.fromisoformat(text).replace(tzinfo=KST)
+                  except ValueError:
+                      return text
+              return dt.strftime("%Y-%m-%d %H:%M:%S KST")
+          def lambda_handler(event, context):
+              params = event.get("queryStringParameters") or {}
+              booking_id = params.get("booking_id")
+              if not booking_id:
+                  return {"statusCode": 400, "headers": {"Content-Type": "application/json"}, "body": json.dumps({"error": "booking_id is required"})}
+              response = table.query(IndexName="booking_id-index", KeyConditionExpression="booking_id = :bid", ExpressionAttributeValues={":bid": booking_id}, Limit=1)
+              items = response.get("Items", [])
+              if not items:
+                  return {"statusCode": 404, "headers": {"Content-Type": "application/json"}, "body": json.dumps({"error": "not found"})}
+              item = items[0]
+              ordered = OrderedDict([("client_id", item.get("client_id", "")), ("username", item.get("username", "")), ("email", item.get("email", "")), ("concert_name", item.get("concert_name", "")), ("created_at", _format_created_at(item.get("created_at")))])
+              return {"statusCode": 200, "headers": {"Content-Type": "application/json"}, "body": json.dumps(ordered)}
+
+  BookGetFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt BookGetFunction.Arn
+      AuthType: NONE
+      Cors:
+        AllowMethods:
+          - GET
+        AllowOrigins:
+          - '*'
+
+  BookGetUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BookGetFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t3.small
+      SubnetId: !Ref HubSubnetA
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroupId
+        - !Ref MarkSecurityGroupId
+      IamInstanceProfile: !Ref BastionInstanceProfileName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y python3 unzip jq tar gzip
+          curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.2/bin/linux/amd64/kubectl"
+          chmod +x /usr/local/bin/kubectl
+          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+          unzip -qo /tmp/awscliv2.zip -d /tmp && /tmp/aws/install -u || true
+          mkdir -p /root/.kube /home/ec2-user/.kube
+          aws eks update-kubeconfig --region ${AWS::Region} --name wsc2026-eks-cluster || true
+          cp -a /root/.kube/config /home/ec2-user/.kube/config || true
+          chown -R ec2-user:ec2-user /home/ec2-user/.kube || true
+      Tags:
+        - Key: Name
+          Value: wsc2026-bastion
+        - Key: Project
+          Value: wsc2026
+
+  BookLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: wsc2026-app-alb
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref AlbSecurityGroupId
+      Subnets:
+        - !Ref HubSubnetA
+        - !Ref HubSubnetB
+      Tags:
+        - Key: Name
+          Value: wsc2026-app-alb
+        - Key: Project
+          Value: wsc2026
+
+  BookTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: wsc2026-book-tg
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckPort: '8080'
+      Matcher:
+        HttpCode: '200'
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      HealthCheckIntervalSeconds: 30
+      Tags:
+        - Key: Name
+          Value: wsc2026-book-tg
+
+  BookListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref BookLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: Forbidden
+            StatusCode: '403'
+
+  BookListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref BookListener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - /v1/book*
+              - /booking*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref BookTargetGroup
+
+Outputs:
+  LambdaFunctionArn:
+    Value: !GetAtt BookGetFunction.Arn
+  LambdaFunctionUrl:
+    Value: !GetAtt BookGetFunctionUrl.FunctionUrl
+  BastionInstanceId:
+    Value: !Ref BastionInstance
+  AlbDnsName:
+    Value: !GetAtt BookLoadBalancer.DNSName
+  AlbArn:
+    Value: !Ref BookLoadBalancer
+  BookTargetGroupArn:
+    Value: !Ref BookTargetGroup

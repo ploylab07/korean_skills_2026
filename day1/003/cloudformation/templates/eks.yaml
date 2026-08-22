@@ -1,0 +1,395 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wsc2026 day1/003 EKS cluster, node groups, addons, pod identity
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '003'
+  VpcId:
+    Type: String
+  VpcCidr:
+    Type: String
+  HubSubnetA:
+    Type: String
+  HubSubnetB:
+    Type: String
+  AppSubnetA:
+    Type: String
+  AppSubnetB:
+    Type: String
+  AlbSecurityGroupId:
+    Type: String
+  BastionSecurityGroupId:
+    Type: String
+  MarkSecurityGroupId:
+    Type: String
+  EksKmsKeyArn:
+    Type: String
+  BookPodRoleArn:
+    Type: String
+
+Resources:
+  EksClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wsc2026-eks-cluster-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
+  EksAddonNodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wsc2026-eks-addon-node-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: wsc2026-addon-observability
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                  - logs:DescribeLogGroups
+                  - logs:GetLogEvents
+                  - logs:FilterLogEvents
+                  - logs:StartQuery
+                  - logs:StopQuery
+                  - logs:GetQueryResults
+                  - cloudwatch:ListMetrics
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - ec2:DescribeTags
+                  - ec2:DescribeInstances
+                  - ec2:DescribeRegions
+                Resource: '*'
+
+  EksWorkloadNodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wsc2026-eks-workload-node-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: wsc2026-workload-observability
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                  - logs:DescribeLogGroups
+                Resource: '*'
+
+  BastionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wsc2026-bastion-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: wsc2026-bastion-eks
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                  - eks:ListClusters
+                  - eks:AccessKubernetesApi
+                Resource: '*'
+
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Name: wsc2026-bastion-profile
+      Roles:
+        - !Ref BastionRole
+
+  AddonLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub 'wsc2026-addon-lt-${AWS::StackName}'
+      LaunchTemplateData:
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: wsc2026-addon-node
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: wsc2026-addon-node
+
+  WorkloadLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub 'wsc2026-workload-lt-${AWS::StackName}'
+      LaunchTemplateData:
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: wsc2026-workload-node
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: wsc2026-workload-node
+
+  EksCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: wsc2026-eks-cluster
+      Version: '1.35'
+      RoleArn: !GetAtt EksClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds:
+          - !Ref AppSubnetA
+          - !Ref AppSubnetB
+          - !Ref HubSubnetA
+          - !Ref HubSubnetB
+        EndpointPrivateAccess: true
+        EndpointPublicAccess: false
+      AccessConfig:
+        AuthenticationMode: API
+        BootstrapClusterCreatorAdminPermissions: true
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - Type: api
+            - Type: audit
+            - Type: authenticator
+            - Type: controllerManager
+            - Type: scheduler
+      EncryptionConfig:
+        - Provider:
+            KeyArn: !Ref EksKmsKeyArn
+          Resources:
+            - secrets
+      Tags:
+        - Key: Name
+          Value: wsc2026-eks-cluster
+        - Key: Project
+          Value: wsc2026
+
+  ClusterSgFromAlb8080:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref AlbSecurityGroupId
+      Description: ALB to pods on 8080
+
+  ClusterSgFromAlb80:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref AlbSecurityGroupId
+      Description: ALB to pods on 80
+
+  ClusterSgFromBastion:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref BastionSecurityGroupId
+      Description: Bastion to EKS API
+
+  ClusterSgFromMark:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref MarkSecurityGroupId
+      Description: CloudShell mark-sg to EKS API
+
+  ClusterSgFromVpc:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref VpcCidr
+      Description: VPC to EKS API
+
+  ClusterSgGrafana:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      CidrIp: 0.0.0.0/0
+      Description: Grafana NLB to pods
+
+  AddonNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref EksCluster
+      NodegroupName: wsc2026-addon-nodegroup
+      NodeRole: !GetAtt EksAddonNodeRole.Arn
+      Subnets:
+        - !Ref AppSubnetA
+        - !Ref AppSubnetB
+      InstanceTypes:
+        - t3.medium
+      ScalingConfig:
+        DesiredSize: 2
+        MinSize: 2
+        MaxSize: 4
+      Labels:
+        wsc2026/node: addon
+      LaunchTemplate:
+        Id: !Ref AddonLaunchTemplate
+        Version: !GetAtt AddonLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: wsc2026-addon-node
+
+  WorkloadNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref EksCluster
+      NodegroupName: wsc2026-workload-ng
+      NodeRole: !GetAtt EksWorkloadNodeRole.Arn
+      Subnets:
+        - !Ref AppSubnetA
+        - !Ref AppSubnetB
+      InstanceTypes:
+        - t3.medium
+      ScalingConfig:
+        DesiredSize: 2
+        MinSize: 2
+        MaxSize: 4
+      Labels:
+        wsc2026/node: application
+      LaunchTemplate:
+        Id: !Ref WorkloadLaunchTemplate
+        Version: !GetAtt WorkloadLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: wsc2026-workload-node
+
+  VpcCniAddon:
+    Type: AWS::EKS::Addon
+    Properties:
+      ClusterName: !Ref EksCluster
+      AddonName: vpc-cni
+
+  KubeProxyAddon:
+    Type: AWS::EKS::Addon
+    DependsOn:
+      - AddonNodeGroup
+      - WorkloadNodeGroup
+    Properties:
+      ClusterName: !Ref EksCluster
+      AddonName: kube-proxy
+
+  CoreDnsAddon:
+    Type: AWS::EKS::Addon
+    DependsOn:
+      - AddonNodeGroup
+      - WorkloadNodeGroup
+    Properties:
+      ClusterName: !Ref EksCluster
+      AddonName: coredns
+      ConfigurationValues: !Sub |
+        {
+          "corefile": ".:53 {\n    errors\n    health {\n        lameduck 5s\n      }\n    ready\n    kubernetes wsc2026.skills.local cluster.local in-addr.arpa ip6.arpa {\n      pods insecure\n      fallthrough in-addr.arpa ip6.arpa\n    }\n    prometheus :9153\n    forward . /etc/resolv.conf\n    cache 30\n    loop\n    reload\n    loadbalance\n}\n"
+        }
+
+  PodIdentityAddon:
+    Type: AWS::EKS::Addon
+    DependsOn:
+      - AddonNodeGroup
+      - WorkloadNodeGroup
+    Properties:
+      ClusterName: !Ref EksCluster
+      AddonName: eks-pod-identity-agent
+
+  BookPodIdentityAssociation:
+    Type: AWS::EKS::PodIdentityAssociation
+    DependsOn:
+      - PodIdentityAddon
+    Properties:
+      ClusterName: !Ref EksCluster
+      Namespace: wsc2026
+      ServiceAccount: wsc2026-book-sa
+      RoleArn: !Ref BookPodRoleArn
+
+  BastionAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref EksCluster
+      PrincipalArn: !GetAtt BastionRole.Arn
+      Type: STANDARD
+      AccessPolicies:
+        - PolicyArn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope:
+            Type: cluster
+
+Outputs:
+  ClusterName:
+    Value: !Ref EksCluster
+  ClusterArn:
+    Value: !GetAtt EksCluster.Arn
+  ClusterEndpoint:
+    Value: !GetAtt EksCluster.Endpoint
+  ClusterSecurityGroupId:
+    Value: !GetAtt EksCluster.ClusterSecurityGroupId
+  BastionRoleArn:
+    Value: !GetAtt BastionRole.Arn
+  BastionInstanceProfileName:
+    Value: !Ref BastionInstanceProfile
+  OpenIdConnectIssuerUrl:
+    Value: !GetAtt EksCluster.OpenIdConnectIssuerUrl
