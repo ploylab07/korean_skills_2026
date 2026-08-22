@@ -5,17 +5,44 @@
 
 $script:ContestToolsBinDir = Join-Path $PSScriptRoot ".bin"
 
+function Get-WebText {
+    param([Parameter(Mandatory = $true)][string]$Uri)
+    $resp = Invoke-WebRequest -Uri $Uri -UseBasicParsing
+    $content = $resp.Content
+    if ($content -is [byte[]]) {
+        return ([System.Text.Encoding]::UTF8.GetString($content)).Trim()
+    }
+    return ("$content").Trim()
+}
+
+function Invoke-WebFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$OutFile
+    )
+    Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
+}
+
 function Find-ExeUnder {
     param(
         [string[]]$Roots,
         [Parameter(Mandatory = $true)][string]$ExeName,
-        [int]$MaxDepth = 5
+        [int]$MaxDepth = 8
     )
     foreach ($root in $Roots) {
         if (-not $root -or -not (Test-Path -LiteralPath $root)) { continue }
         try {
-            $hit = Get-ChildItem -LiteralPath $root -Filter $ExeName -Recurse -Depth $MaxDepth -ErrorAction SilentlyContinue |
-                Select-Object -First 1
+            $gciParams = @{
+                LiteralPath = $root
+                Filter      = $ExeName
+                Recurse     = $true
+                ErrorAction = 'SilentlyContinue'
+            }
+            # -Depth is PS 5.0+; omit on older hosts
+            if ((Get-Command Get-ChildItem).Parameters.ContainsKey('Depth')) {
+                $gciParams.Depth = $MaxDepth
+            }
+            $hit = Get-ChildItem @gciParams | Select-Object -First 1
             if ($hit) { return $hit.FullName }
         }
         catch { }
@@ -163,9 +190,9 @@ function Install-KubectlPortable {
     if (Test-Path -LiteralPath $dest) { return $dest }
     $verUrl = "https://dl.k8s.io/release/stable.txt"
     Write-Host "Downloading kubectl to build\.bin ..." -ForegroundColor Yellow
-    $ver = (Invoke-WebRequest -Uri $verUrl -UseBasicParsing).Content.Trim()
+    $ver = Get-WebText -Uri $verUrl
     $url = "https://dl.k8s.io/release/$ver/bin/windows/amd64/kubectl.exe"
-    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+    Invoke-WebFile -Uri $url -OutFile $dest
     return $dest
 }
 
@@ -174,10 +201,10 @@ function Install-HelmPortable {
     $dest = Join-Path $script:ContestToolsBinDir "helm.exe"
     if (Test-Path -LiteralPath $dest) { return $dest }
     Write-Host "Downloading helm to build\.bin ..." -ForegroundColor Yellow
-    $ver = (Invoke-WebRequest -Uri "https://get.helm.sh/helm-latest-version" -UseBasicParsing).Content.Trim()
+    $ver = Get-WebText -Uri "https://get.helm.sh/helm-latest-version"
     $zip = Join-Path ([System.IO.Path]::GetTempPath()) ("helm-{0}-windows-amd64.zip" -f $ver)
     $url = "https://get.helm.sh/helm-$ver-windows-amd64.zip"
-    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+    Invoke-WebFile -Uri $url -OutFile $zip
     $extract = Join-Path ([System.IO.Path]::GetTempPath()) ("helm-extract-{0}" -f [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $extract | Out-Null
     try {
@@ -197,20 +224,59 @@ function Install-HelmPortable {
 function Install-AwsCliMsi {
     $msi = Join-Path ([System.IO.Path]::GetTempPath()) "AWSCLIV2.msi"
     Write-Host "Downloading AWS CLI v2 MSI ..." -ForegroundColor Yellow
-    Invoke-WebRequest -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi -UseBasicParsing
+    Invoke-WebFile -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi
     Write-Host "Installing AWS CLI v2 (quiet) ..." -ForegroundColor Yellow
     $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", $msi, "/qn", "/norestart") -Wait -PassThru
     Remove-Item $msi -Force -ErrorAction SilentlyContinue
     if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
         throw ("AWS CLI MSI install failed (exit {0})" -f $p.ExitCode)
     }
+    $awsExe = Join-Path ${env:ProgramFiles} "Amazon\AWSCLIV2\aws.exe"
+    $deadline = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path -LiteralPath $awsExe) { return $awsExe }
+        Start-Sleep -Seconds 2
+    }
+    throw "AWS CLI MSI finished but aws.exe not found"
+}
+
+function Install-GitSilent {
+    Write-Host "Downloading Git for Windows (silent) ..." -ForegroundColor Yellow
+    $installer = Join-Path ([System.IO.Path]::GetTempPath()) "Git-64-bit.exe"
+    $url = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe"
+    Invoke-WebFile -Uri $url -OutFile $installer
+    Write-Host "Installing Git for Windows (quiet) ..." -ForegroundColor Yellow
+    $p = Start-Process -FilePath $installer -ArgumentList @(
+        "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-", "/CLOSEAPPLICATIONS",
+        "/RESTARTAPPLICATIONS", "/COMPONENTS=icons,ext\reg\shellhere,assoc,assoc_sh"
+    ) -Wait -PassThru
+    Remove-Item $installer -Force -ErrorAction SilentlyContinue
+    if ($p.ExitCode -ne 0) {
+        throw ("Git install failed (exit {0})" -f $p.ExitCode)
+    }
+    $bashExe = Join-Path ${env:ProgramFiles} "Git\bin\bash.exe"
+    $deadline = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path -LiteralPath $bashExe) { return $bashExe }
+        Start-Sleep -Seconds 2
+    }
+    throw "Git install finished but bash.exe not found"
 }
 
 function Install-WithWinget([string]$Id, [string]$Label) {
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if (-not $winget) { return $false }
     Write-Host ("Installing {0} via winget ({1}) ..." -f $Label, $Id) -ForegroundColor Yellow
-    & winget install --id $Id -e --accept-package-agreements --accept-source-agreements --disable-interactivity
+    $scopeArgs = @()
+    $isAdmin = $false
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object Security.Principal.WindowsPrincipal $id
+        $isAdmin = $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+    catch { }
+    if ($isAdmin) { $scopeArgs = @("--scope", "machine") }
+    & winget install --id $Id -e @scopeArgs --accept-package-agreements --accept-source-agreements --disable-interactivity
     return ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) # already installed
 }
 
@@ -235,14 +301,17 @@ function Try-InstallMissingTools {
         $ok = $false
         try { $ok = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" } catch { $ok = $false }
         if (-not $ok) {
-            try { Install-AwsCliMsi } catch { Write-Host ("AWS CLI install failed: {0}" -f $_) -ForegroundColor Red }
+            try { $null = Install-AwsCliMsi } catch { Write-Host ("AWS CLI install failed: {0}" -f $_) -ForegroundColor Red }
         }
     }
     if ($NeedBash) {
         $ok = $false
         try { $ok = Install-WithWinget -Id "Git.Git" -Label "Git for Windows" } catch { $ok = $false }
         if (-not $ok) {
-            Write-Host "Git winget failed. Install from https://git-scm.com/download/win" -ForegroundColor Yellow
+            try { $null = Install-GitSilent } catch {
+                Write-Host ("Git install failed: {0}" -f $_) -ForegroundColor Red
+                Write-Host "Install manually: https://git-scm.com/download/win" -ForegroundColor Yellow
+            }
         }
     }
     if ($NeedHelm) {
@@ -282,6 +351,16 @@ function Resolve-ContestTools {
         (Join-Path $local "Programs")
         (Join-Path $local "Microsoft\WinGet\Links")
         (Join-Path $local "Microsoft\WinGet\Packages")
+        (Join-Path $pf "Amazon")
+        (Join-Path $pf "Git")
+        (Join-Path $pf "Helm")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+
+    $awsSearchRoots = @(
+        (Join-Path $pf "Amazon")
+        (Join-Path $pf86 "Amazon")
+        (Join-Path $local "Programs\Amazon")
+        (Join-Path $local "Microsoft\WinGet\Packages")
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
 
     $needBash = Test-NeedsBashLocalExec $RelPath
@@ -293,7 +372,7 @@ function Resolve-ContestTools {
         (Join-Path $pf "Amazon\AWSCLIV2\aws.exe")
         (Join-Path $pf86 "Amazon\AWSCLIV2\aws.exe")
         (Join-Path $local "Programs\Amazon\AWSCLIV2\aws.exe")
-    ) -SearchRoots $programSearchRoots -ExeName "aws.exe"
+    ) -SearchRoots $awsSearchRoots -ExeName "aws.exe"
     $kubectl = $null
     $helm = $null
     $docker = $null
@@ -433,18 +512,30 @@ function Ensure-ContestTools {
     if ($still.Count -gt 0) {
         Write-Host "[!] Still missing after install attempt:" -ForegroundColor Red
         foreach ($m in $still) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
-        Write-Host "Retrying portable downloads (kubectl/helm) and AWS MSI where possible ..." -ForegroundColor Cyan
-        try {
-            if (-not $t.Aws) {
+        Write-Host "Retrying portable downloads (kubectl/helm) and AWS MSI / Git silent where possible ..." -ForegroundColor Cyan
+        if (-not $t.Aws) {
+            try {
                 $ok = $false
                 try { $ok = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" } catch { $ok = $false }
-                if (-not $ok) { Install-AwsCliMsi }
+                if (-not $ok) { $null = Install-AwsCliMsi }
             }
-            if ($t.NeedKubectl -and -not $t.Kubectl) { $null = Install-KubectlPortable }
-            if ($t.NeedHelm -and -not $t.Helm) { $null = Install-HelmPortable }
+            catch { Write-Host ("AWS retry failed: {0}" -f $_) -ForegroundColor Red }
         }
-        catch {
-            Write-Host ("Portable retry failed: {0}" -f $_) -ForegroundColor Red
+        if ($t.NeedBash -and -not $t.Bash) {
+            try {
+                $ok = $false
+                try { $ok = Install-WithWinget -Id "Git.Git" -Label "Git for Windows" } catch { $ok = $false }
+                if (-not $ok) { $null = Install-GitSilent }
+            }
+            catch { Write-Host ("Git retry failed: {0}" -f $_) -ForegroundColor Red }
+        }
+        if ($t.NeedKubectl -and -not $t.Kubectl) {
+            try { $null = Install-KubectlPortable }
+            catch { Write-Host ("kubectl retry failed: {0}" -f $_) -ForegroundColor Red }
+        }
+        if ($t.NeedHelm -and -not $t.Helm) {
+            try { $null = Install-HelmPortable }
+            catch { Write-Host ("Helm retry failed: {0}" -f $_) -ForegroundColor Red }
         }
         Refresh-ProcessPath
         $t = Resolve-ContestTools -RelPath $RelPath
