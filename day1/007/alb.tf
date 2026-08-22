@@ -11,11 +11,20 @@ resource "aws_security_group" "alb" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "CloudFront VPC origin ENIs"
+    description = "VPC CIDR (CloudFront VPC origin ENIs)"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = [aws_vpc.main.cidr_block]
+  }
+
+  # Required for CloudFront VPC Origin reachability (CIDR alone times out).
+  ingress {
+    description     = "CloudFront origin-facing prefix list"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
   }
 
   egress {
@@ -26,6 +35,10 @@ resource "aws_security_group" "alb" {
   }
 
   tags = merge(local.common_tags, { Name = "unicorn-alb-sg" })
+}
+
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
 }
 
 resource "aws_security_group" "grafana_alb" {

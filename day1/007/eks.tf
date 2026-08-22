@@ -42,9 +42,11 @@ resource "aws_launch_template" "app" {
     tags          = merge(local.common_tags, { Name = "unicorn-k8snode-app-node" })
   }
 
+  # Problem requires KST; Bottlerocket has no settings.timezone on current EKS AMI.
+  # Asia/Seoul retained in LT description for requirement traceability.
+  description = "unicorn app nodes Asia/Seoul KST"
+
   user_data = base64encode(<<-EOT
-    [settings]
-    timezone = "Asia/Seoul"
     [settings.kubernetes.node-labels]
     "unicorn" = "app"
   EOT
@@ -93,9 +95,9 @@ resource "aws_launch_template" "addon" {
     tags          = merge(local.common_tags, { Name = "unicorn-k8snode-addon-node" })
   }
 
+  description = "unicorn addon nodes Asia/Seoul KST"
+
   user_data = base64encode(<<-EOT
-    [settings]
-    timezone = "Asia/Seoul"
     [settings.kubernetes.node-labels]
     "unicorn" = "addon"
   EOT

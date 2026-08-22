@@ -194,34 +194,13 @@ resource "aws_kms_key_policy" "platform_primary" {
 }
 
 # unicorn-kms-platform replica in ap-northeast-2 — EKS envelope encryption, EBS, EKS/VPC-flow CloudWatch logs
+# Put the full policy on the replica itself. A separate aws_kms_key_policy can be
+# wiped when the replica resource refreshes its inline policy (root-only).
 resource "aws_kms_replica_key" "platform" {
   description             = "unicorn-kms-platform - EKS secrets / EBS / logs (replica, ap-northeast-2)"
   deletion_window_in_days = 7
   primary_key_arn         = aws_kms_key.platform_primary.arn
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "RootAdmin"
-        Effect    = "Allow"
-        Principal = { AWS = "arn:aws:iam::${local.account_id}:root" }
-        Action    = "kms:*"
-        Resource  = "*"
-      }
-    ]
-  })
-
-  tags = merge(local.common_tags, { Name = "unicorn-kms-platform" })
-}
-
-resource "aws_kms_alias" "platform_replica" {
-  name          = "alias/unicorn-kms-platform"
-  target_key_id = aws_kms_replica_key.platform.key_id
-}
-
-resource "aws_kms_key_policy" "platform_replica" {
-  key_id = aws_kms_replica_key.platform.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -278,7 +257,33 @@ resource "aws_kms_key_policy" "platform_replica" {
           "kms:CreateGrant"
         ]
         Resource = "*"
+      },
+      {
+        Sid       = "AllowNodeRoleForEBS"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${local.account_id}:role/unicorn-eks-node-role" }
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:GenerateDataKey*",
+          "kms:CreateGrant",
+          "kms:ReEncrypt*"
+        ]
+        Resource = "*"
       }
     ]
   })
+
+  tags = merge(local.common_tags, { Name = "unicorn-kms-platform" })
+}
+
+resource "aws_kms_alias" "platform_replica" {
+  name          = "alias/unicorn-kms-platform"
+  target_key_id = aws_kms_replica_key.platform.key_id
+}
+
+# Keep key_policy in sync with the replica inline policy (same document).
+resource "aws_kms_key_policy" "platform_replica" {
+  key_id = aws_kms_replica_key.platform.id
+  policy = aws_kms_replica_key.platform.policy
 }

@@ -179,34 +179,90 @@ resource "helm_release" "kube_prometheus_stack" {
   # EKS manages the control plane; unicorn=addon-only components probe it via
   # the standard k8s API service, but etcd/scheduler/controller-manager are
   # never reachable — disable their ServiceMonitors entirely.
-  set = [
-    { name = "kubeControllerManager.enabled", value = "false" },
-    { name = "kubeScheduler.enabled", value = "false" },
-    { name = "kubeEtcd.enabled", value = "false" },
-    { name = "grafana.adminUser", value = local.grafana_admin_user },
-    { name = "grafana.nodeSelector.unicorn", value = "addon" },
-    { name = "grafana.sidecar.dashboards.enabled", value = "true" },
-    { name = "grafana.sidecar.dashboards.label", value = "grafana_dashboard" },
-    { name = "prometheus.prometheusSpec.nodeSelector.unicorn", value = "addon" },
-    { name = "alertmanager.alertmanagerSpec.nodeSelector.unicorn", value = "addon" },
-    { name = "kube-state-metrics.nodeSelector.unicorn", value = "addon" },
-    { name = "prometheusOperator.nodeSelector.unicorn", value = "addon" },
-    { name = "prometheusOperator.admissionWebhooks.enabled", value = "false" },
-    { name = "prometheusOperator.admissionWebhooks.patch.enabled", value = "false" },
-    { name = "prometheusOperator.tls.enabled", value = "false" },
-    # CloudWatch datasource for the "Book App HTTP Request Duration" panel
-    # (ALB TargetResponseTime). Grafana runs on the addon node, so it reads
-    # via the node IAM role (cloudwatch:GetMetricData/ListMetrics, see iam.tf).
-    { name = "grafana.additionalDataSources[0].name", value = "CloudWatch" },
-    { name = "grafana.additionalDataSources[0].type", value = "cloudwatch" },
-    { name = "grafana.additionalDataSources[0].access", value = "proxy" },
-    { name = "grafana.additionalDataSources[0].jsonData.authType", value = "default" },
-    { name = "grafana.additionalDataSources[0].jsonData.defaultRegion", value = local.region },
-  ]
+  set {
+    name  = "kubeControllerManager.enabled"
+    value = "false"
+  }
+  set {
+    name  = "kubeScheduler.enabled"
+    value = "false"
+  }
+  set {
+    name  = "kubeEtcd.enabled"
+    value = "false"
+  }
+  set {
+    name  = "grafana.adminUser"
+    value = local.grafana_admin_user
+  }
+  set {
+    name  = "grafana.nodeSelector.unicorn"
+    value = "addon"
+  }
+  set {
+    name  = "grafana.sidecar.dashboards.enabled"
+    value = "true"
+  }
+  set {
+    name  = "grafana.sidecar.dashboards.label"
+    value = "grafana_dashboard"
+  }
+  set {
+    name  = "prometheus.prometheusSpec.nodeSelector.unicorn"
+    value = "addon"
+  }
+  set {
+    name  = "alertmanager.alertmanagerSpec.nodeSelector.unicorn"
+    value = "addon"
+  }
+  set {
+    name  = "kube-state-metrics.nodeSelector.unicorn"
+    value = "addon"
+  }
+  set {
+    name  = "prometheusOperator.nodeSelector.unicorn"
+    value = "addon"
+  }
+  set {
+    name  = "prometheusOperator.admissionWebhooks.enabled"
+    value = "false"
+  }
+  set {
+    name  = "prometheusOperator.admissionWebhooks.patch.enabled"
+    value = "false"
+  }
+  set {
+    name  = "prometheusOperator.tls.enabled"
+    value = "false"
+  }
+  # CloudWatch datasource for the "Book App HTTP Request Duration" panel
+  # (ALB TargetResponseTime). Grafana runs on the addon node, so it reads
+  # via the node IAM role (cloudwatch:GetMetricData/ListMetrics, see iam.tf).
+  set {
+    name  = "grafana.additionalDataSources[0].name"
+    value = "CloudWatch"
+  }
+  set {
+    name  = "grafana.additionalDataSources[0].type"
+    value = "cloudwatch"
+  }
+  set {
+    name  = "grafana.additionalDataSources[0].access"
+    value = "proxy"
+  }
+  set {
+    name  = "grafana.additionalDataSources[0].jsonData.authType"
+    value = "default"
+  }
+  set {
+    name  = "grafana.additionalDataSources[0].jsonData.defaultRegion"
+    value = local.region
+  }
 
-  set_sensitive = [
-    { name = "grafana.adminPassword", value = local.grafana_admin_password },
-  ]
+  set_sensitive {
+    name  = "grafana.adminPassword"
+    value = local.grafana_admin_password
+  }
 
   depends_on = [aws_eks_node_group.addon]
 }
