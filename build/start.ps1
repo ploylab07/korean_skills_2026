@@ -301,47 +301,75 @@ function Invoke-TfImportQuiet {
 }
 
 function Remove-Day1002OrphanAws {
-    # When EKS is gone, terraform import fails (kubernetes/helm provider needs cluster endpoint).
-    # Delete name-colliding leftovers so a fresh apply can recreate them.
-    Write-Host ">>> EKS absent — remove colliding AWS leftovers (no terraform import)" -ForegroundColor Cyan
-    $fn = Get-AwsText cloudfront list-functions --query "FunctionList.Items[?Name=='wskorea26-book-rewrite'].Name" --output text
-    if ($fn) {
-        $etag = Get-AwsText cloudfront describe-function --name $fn --query ETag --output text
-        if ($etag) {
-            Write-Host "  delete CloudFront function $fn"
-            $null = Invoke-AwsQuiet cloudfront delete-function --name $fn --if-match $etag
+    # Prefer AWS CLI cleanup over terraform import when resources are not in state.
+    # Import fails if EKS exists in AWS but not in local state (kubernetes/helm provider unknown).
+    param([string]$AssignPath = "")
+    Write-Host ">>> Remove colliding AWS leftovers not in terraform state" -ForegroundColor Cyan
+    . (Join-Path $BuildDir "cleanup-wskorea26.ps1")
+
+    $inState = {
+        param($addr)
+        if (-not $AssignPath) { return $false }
+        return (Test-TfStateHas -AssignPath $AssignPath -Address $addr)
+    }
+
+    if (-not (& $inState "aws_cloudfront_function.rewrite")) {
+        $fn = Get-AwsText cloudfront list-functions --query "FunctionList.Items[?Name=='wskorea26-book-rewrite'].Name" --output text
+        if ($fn) {
+            $etag = Get-AwsText cloudfront describe-function --name $fn --query ETag --output text
+            if ($etag) {
+                Write-Host "  delete CloudFront function $fn"
+                $null = Invoke-AwsQuiet cloudfront delete-function --name $fn --if-match $etag
+            }
         }
     }
-    $oac = Get-AwsText cloudfront list-origin-access-controls --query "OriginAccessControlList.Items[?Name=='wskorea26-s3-oac'].Id" --output text
-    $oacId = (@($oac -split '\s+') | Where-Object { $_ }) | Select-Object -First 1
-    if ($oacId) {
-        $etag = Get-AwsText cloudfront get-origin-access-control --id $oacId --query ETag --output text
-        Write-Host "  delete OAC $oacId"
-        $null = Invoke-AwsQuiet cloudfront delete-origin-access-control --id $oacId --if-match $etag
+
+    if (-not (& $inState "module.book_image.aws_codebuild_project.image")) {
+        $projects = @(Get-AwsTokens codebuild list-projects --output text)
+        if ($projects -contains "wskorea26-book") {
+            Write-Host "  delete CodeBuild project wskorea26-book"
+            $null = Invoke-AwsQuiet codebuild delete-project --name wskorea26-book
+        }
     }
-    $lg = Get-AwsText logs describe-log-groups --log-group-name-prefix "/codebuild/wskorea26-book" --query "logGroups[?logGroupName=='/codebuild/wskorea26-book'].logGroupName | [0]" --output text
-    if ($lg) {
-        Write-Host "  delete log group $lg"
-        $null = Invoke-AwsQuiet logs delete-log-group --log-group-name $lg
+
+    if (-not (& $inState "aws_cloudfront_origin_access_control.s3")) {
+        $oac = Get-AwsText cloudfront list-origin-access-controls --query "OriginAccessControlList.Items[?Name=='wskorea26-s3-oac'].Id" --output text
+        $oacId = (@($oac -split '\s+') | Where-Object { $_ }) | Select-Object -First 1
+        if ($oacId) {
+            $etag = Get-AwsText cloudfront get-origin-access-control --id $oacId --query ETag --output text
+            Write-Host "  delete OAC $oacId"
+            $null = Invoke-AwsQuiet cloudfront delete-origin-access-control --id $oacId --if-match $etag
+        }
     }
-    $bucket = Get-AwsText s3api list-buckets --query "Buckets[?starts_with(Name, 'wskorea26-concert-bucket-')].Name | [0]" --output text
-    if ($bucket) {
-        Write-Host "  delete bucket $bucket (owned by this account)"
-        $null = Invoke-AwsQuiet s3 rm "s3://$bucket" --recursive
-        $null = Invoke-AwsQuiet s3api delete-bucket --bucket $bucket
+
+    if (-not (& $inState "module.book_image.aws_cloudwatch_log_group.build")) {
+        $lg = Get-AwsText logs describe-log-groups --log-group-name-prefix "/codebuild/wskorea26-book" --query "logGroups[?logGroupName=='/codebuild/wskorea26-book'].logGroupName | [0]" --output text
+        if ($lg) {
+            Write-Host "  delete log group $lg"
+            $null = Invoke-AwsQuiet logs delete-log-group --log-group-name $lg
+        }
     }
-    else {
-        Write-Host "  note: wskorea26-concert-bucket-* not in this account (global name may still be taken)" -ForegroundColor DarkYellow
+
+    # S3: only delete if this account owns it (never delete foreign global names)
+    if (-not (& $inState "aws_s3_bucket.web")) {
+        $bucket = Get-AwsText s3api list-buckets --query "Buckets[?starts_with(Name, 'wskorea26-concert-bucket-')].Name | [0]" --output text
+        if ($bucket) {
+            Write-Host "  delete bucket $bucket (owned by this account)"
+            $null = Invoke-AwsQuiet s3 rm "s3://$bucket" --recursive
+            $null = Invoke-AwsQuiet s3api delete-bucket --bucket $bucket
+        }
     }
 }
 
 function Import-Day1002Orphans([string]$AssignPath) {
-    Write-Host ">>> Adopt leftover AWS names into terraform state (avoids 409 AlreadyExists)" -ForegroundColor Cyan
-    . (Join-Path $BuildDir "cleanup-wskorea26.ps1")
+    Write-Host ">>> Clear/adopt leftover AWS names (avoids 409 AlreadyExists)" -ForegroundColor Cyan
+    # Always remove untracked name collisions via AWS CLI (import is unreliable without EKS in state).
+    Remove-Day1002OrphanAws -AssignPath $AssignPath
 
-    $cluster = Get-AwsText eks describe-cluster --name wskorea26-cluster --query "cluster.name" --output text
-    if (-not $cluster) {
-        Remove-Day1002OrphanAws
+    . (Join-Path $BuildDir "cleanup-wskorea26.ps1")
+    $clusterInState = Test-TfStateHas -AssignPath $AssignPath -Address "aws_eks_cluster.main"
+    if (-not $clusterInState) {
+        Write-Host "  skip terraform import (EKS not in local state — kubernetes/helm provider would fail)" -ForegroundColor DarkYellow
         return
     }
 
@@ -357,6 +385,11 @@ function Import-Day1002Orphans([string]$AssignPath) {
 
     $lg = Get-AwsText logs describe-log-groups --log-group-name-prefix "/codebuild/wskorea26-book" --query "logGroups[?logGroupName=='/codebuild/wskorea26-book'].logGroupName | [0]" --output text
     Invoke-TfImportQuiet -AssignPath $AssignPath -Address "module.book_image.aws_cloudwatch_log_group.build" -Id $lg
+
+    $cb = ""
+    $projects = Get-AwsText codebuild list-projects --output text
+    if ($projects -match '(^|\s)wskorea26-book(\s|$)') { $cb = "wskorea26-book" }
+    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "module.book_image.aws_codebuild_project.image" -Id $cb
 
     $dist = Get-AwsText cloudfront list-distributions --query "DistributionList.Items[?Comment=='wskorea26-concert-cf'].Id" --output text
     $distId = (@($dist -split '\s+') | Where-Object { $_ }) | Select-Object -First 1
