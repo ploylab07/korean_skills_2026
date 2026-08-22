@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: unicorn day1/007 master nested stack (RC 2026 Korean Skills cloud computing task 1 bib 007)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '007'
+    Description: 비번호 (audit ExternalId suffix)
+  PlatformKmsPrimaryArn:
+    Type: String
+    Description: us-east-1 multi-region primary ARN (from unicorn-us-east-1 stack)
+  WebAclArn:
+    Type: String
+    Description: unicorn-waf ARN (from unicorn-us-east-1 stack)
+  CloudFrontOriginFacingPrefixListId:
+    Type: String
+    Description: Managed prefix list id for com.amazonaws.global.cloudfront.origin-facing
+
+Resources:
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/storage.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        PlatformKmsPrimaryArn: !Ref PlatformKmsPrimaryArn
+
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - StorageStack
+    Properties:
+      TemplateURL: templates/network.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        PlatformKmsReplicaArn: !GetAtt StorageStack.Outputs.PlatformKmsReplicaArn
+        CloudFrontOriginFacingPrefixListId: !Ref CloudFrontOriginFacingPrefixListId
+
+  EksStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - NetworkStack
+      - StorageStack
+    Properties:
+      TemplateURL: templates/eks.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PrivSubnetA: !GetAtt NetworkStack.Outputs.PrivSubnetA
+        PrivSubnetB: !GetAtt NetworkStack.Outputs.PrivSubnetB
+        PrivSubnetC: !GetAtt NetworkStack.Outputs.PrivSubnetC
+        EksClusterSecurityGroupId: !GetAtt NetworkStack.Outputs.EksClusterSecurityGroupId
+        AlbSecurityGroupId: !GetAtt NetworkStack.Outputs.AlbSecurityGroupId
+        GrafanaAlbSecurityGroupId: !GetAtt NetworkStack.Outputs.GrafanaAlbSecurityGroupId
+        PlatformKmsReplicaArn: !GetAtt StorageStack.Outputs.PlatformKmsReplicaArn
+        DynamoDbTableArn: !GetAtt StorageStack.Outputs.DynamoDbTableArn
+        AppKmsKeyArn: !GetAtt StorageStack.Outputs.AppKmsKeyArn
+
+  EdgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - NetworkStack
+      - StorageStack
+    Properties:
+      TemplateURL: templates/edge.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PubSubnetA: !GetAtt NetworkStack.Outputs.PubSubnetA
+        PubSubnetB: !GetAtt NetworkStack.Outputs.PubSubnetB
+        PubSubnetC: !GetAtt NetworkStack.Outputs.PubSubnetC
+        PrivSubnetA: !GetAtt NetworkStack.Outputs.PrivSubnetA
+        PrivSubnetB: !GetAtt NetworkStack.Outputs.PrivSubnetB
+        PrivSubnetC: !GetAtt NetworkStack.Outputs.PrivSubnetC
+        AlbSecurityGroupId: !GetAtt NetworkStack.Outputs.AlbSecurityGroupId
+        GrafanaAlbSecurityGroupId: !GetAtt NetworkStack.Outputs.GrafanaAlbSecurityGroupId
+        S3BucketName: !GetAtt StorageStack.Outputs.S3BucketName
+        S3BucketArn: !GetAtt StorageStack.Outputs.S3BucketArn
+        S3BucketRegionalDomainName: !GetAtt StorageStack.Outputs.S3BucketRegionalDomainName
+        DynamoDbTableName: !GetAtt StorageStack.Outputs.DynamoDbTableName
+        DynamoDbTableArn: !GetAtt StorageStack.Outputs.DynamoDbTableArn
+        AppKmsKeyArn: !GetAtt StorageStack.Outputs.AppKmsKeyArn
+        PlatformKmsReplicaArn: !GetAtt StorageStack.Outputs.PlatformKmsReplicaArn
+        WebAclArn: !Ref WebAclArn
+
+Outputs:
+  Bibun:
+    Value: !Ref Bibun
+  GrafanaAdminUser:
+    Value: !Sub 'skills${Bibun}'
+  VpcId:
+    Value: !GetAtt NetworkStack.Outputs.VpcId
+  S3BucketName:
+    Value: !GetAtt StorageStack.Outputs.S3BucketName
+  DataKmsKeyArn:
+    Value: !GetAtt StorageStack.Outputs.DataKmsKeyArn
+  PlatformKmsReplicaArn:
+    Value: !GetAtt StorageStack.Outputs.PlatformKmsReplicaArn
+  EcrRepositoryUri:
+    Value: !GetAtt StorageStack.Outputs.EcrRepositoryUri
+  ClusterName:
+    Value: !GetAtt EksStack.Outputs.ClusterName
+  ClusterEndpoint:
+    Value: !GetAtt EksStack.Outputs.ClusterEndpoint
+  BookAppRoleArn:
+    Value: !GetAtt EksStack.Outputs.BookAppRoleArn
+  AuditRoleArn:
+    Value: !GetAtt EksStack.Outputs.AuditRoleArn
+  CloudFrontDistributionId:
+    Value: !GetAtt EdgeStack.Outputs.CloudFrontDistributionId
+  CloudFrontDomainName:
+    Value: !GetAtt EdgeStack.Outputs.CloudFrontDomainName
+  BookAlbDnsName:
+    Value: !GetAtt EdgeStack.Outputs.BookAlbDnsName
+  BookTargetGroupArn:
+    Value: !GetAtt EdgeStack.Outputs.BookTargetGroupArn
+  GrafanaAlbDnsName:
+    Value: !GetAtt EdgeStack.Outputs.GrafanaAlbDnsName
+  GrafanaTargetGroupArn:
+    Value: !GetAtt EdgeStack.Outputs.GrafanaTargetGroupArn
+  LambdaFunctionName:
+    Value: !GetAtt EdgeStack.Outputs.LambdaFunctionName

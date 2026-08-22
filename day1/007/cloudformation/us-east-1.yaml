@@ -1,0 +1,160 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: unicorn day1/007 us-east-1 (multi-region KMS primary + CloudFront WAF)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '007'
+
+Resources:
+  PlatformKmsPrimary:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: unicorn-kms-platform - EKS secrets / EBS / logs (primary, multi-region)
+      MultiRegion: true
+      EnableKeyRotation: true
+      RotationPeriodInDays: 90
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RootAdmin
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowCloudWatchLogsUsEast1
+            Effect: Allow
+            Principal:
+              Service: logs.us-east-1.amazonaws.com
+            Action:
+              - kms:Encrypt*
+              - kms:Decrypt*
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              ArnLike:
+                kms:EncryptionContext:aws:logs:arn: !Sub 'arn:aws:logs:us-east-1:${AWS::AccountId}:log-group:aws-waf-logs-unicorn'
+      Tags:
+        - Key: Name
+          Value: unicorn-kms-platform
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  PlatformKmsPrimaryAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/unicorn-kms-platform
+      TargetKeyId: !Ref PlatformKmsPrimary
+
+  WafLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: aws-waf-logs-unicorn
+      RetentionInDays: 30
+      KmsKeyId: !GetAtt PlatformKmsPrimary.Arn
+
+  WafLogResourcePolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: unicorn-waf-logs-policy
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "Service": "delivery.logs.amazonaws.com" },
+            "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+            "Resource": "arn:aws:logs:us-east-1:${AWS::AccountId}:log-group:aws-waf-logs-unicorn:*",
+            "Condition": {
+              "StringEquals": { "aws:SourceAccount": "${AWS::AccountId}" },
+              "ArnLike": { "aws:SourceArn": "arn:aws:logs:us-east-1:${AWS::AccountId}:*" }
+            }
+          }]
+        }
+
+  UnicornWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: unicorn-waf
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Allow: {}
+      CustomResponseBodies:
+        rate_limited:
+          ContentType: TEXT_PLAIN
+          Content: Request blocked by Unicorn WAF
+      Rules:
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 1
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: unicornCommonRuleSet
+        - Name: AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 2
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: unicornKnownBadInputs
+        - Name: unicorn-rate-limit
+          Priority: 3
+          Action:
+            Block:
+              CustomResponse:
+                ResponseCode: 403
+                CustomResponseBodyKey: rate_limited
+          Statement:
+            RateBasedStatement:
+              Limit: 50
+              EvaluationWindowSec: 60
+              AggregateKeyType: IP
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: unicornRateLimit
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: unicornWaf
+      Tags:
+        - Key: Name
+          Value: unicorn-waf
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  UnicornWebAclLogging:
+    Type: AWS::WAFv2::LoggingConfiguration
+    DependsOn:
+      - WafLogResourcePolicy
+    Properties:
+      ResourceArn: !GetAtt UnicornWebAcl.Arn
+      LogDestinationConfigs:
+        - !GetAtt WafLogGroup.Arn
+
+Outputs:
+  PlatformKmsPrimaryArn:
+    Value: !GetAtt PlatformKmsPrimary.Arn
+  PlatformKmsPrimaryKeyId:
+    Value: !Ref PlatformKmsPrimary
+  WebAclArn:
+    Value: !GetAtt UnicornWebAcl.Arn

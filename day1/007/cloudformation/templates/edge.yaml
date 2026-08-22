@@ -1,0 +1,488 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: unicorn day1/007 edge (Lambda, ALB, CloudFront VPC Origin)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '007'
+  VpcId:
+    Type: String
+  PubSubnetA:
+    Type: String
+  PubSubnetB:
+    Type: String
+  PubSubnetC:
+    Type: String
+  PrivSubnetA:
+    Type: String
+  PrivSubnetB:
+    Type: String
+  PrivSubnetC:
+    Type: String
+  AlbSecurityGroupId:
+    Type: String
+  GrafanaAlbSecurityGroupId:
+    Type: String
+  S3BucketName:
+    Type: String
+  S3BucketArn:
+    Type: String
+  S3BucketRegionalDomainName:
+    Type: String
+  DynamoDbTableName:
+    Type: String
+  DynamoDbTableArn:
+    Type: String
+  AppKmsKeyArn:
+    Type: String
+  PlatformKmsReplicaArn:
+    Type: String
+  WebAclArn:
+    Type: String
+    Description: unicorn-waf ARN from us-east-1 stack
+
+Resources:
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /unicorn/lambda/get-booking
+      RetentionInDays: 30
+      KmsKeyId: !Ref PlatformKmsReplicaArn
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: unicorn-get-booking-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: unicorn-get-booking-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !Ref DynamoDbTableArn
+                  - !Sub '${DynamoDbTableArn}/index/*'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Resource:
+                  - !Ref AppKmsKeyArn
+                  - !Ref PlatformKmsReplicaArn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/unicorn/lambda/get-booking'
+                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/unicorn/lambda/get-booking:*'
+      Tags:
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  GetBookingFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LambdaLogGroup
+    Properties:
+      FunctionName: unicorn-get-booking-func
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      KmsKeyArn: !Ref PlatformKmsReplicaArn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref DynamoDbTableName
+      LoggingConfig:
+        LogFormat: Text
+        LogGroup: /unicorn/lambda/get-booking
+      Tags:
+        - Key: Name
+          Value: unicorn-get-booking-func
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import boto3
+
+          TABLE_NAME = os.environ.get("TABLE_NAME", "unicorn-concert-db")
+          dynamodb = boto3.resource("dynamodb")
+          table = dynamodb.Table(TABLE_NAME)
+          FIELDS = ["booking_id", "client_id", "username", "email", "concert_name", "created_at"]
+
+          def _response(status_code, body):
+              return {
+                  "statusCode": status_code,
+                  "statusDescription": f"{status_code} {'OK' if status_code == 200 else 'Error'}",
+                  "isBase64Encoded": False,
+                  "headers": {"Content-Type": "application/json"},
+                  "body": json.dumps(body, ensure_ascii=False),
+              }
+
+          def lambda_handler(event, context):
+              params = event.get("queryStringParameters") or {}
+              booking_id = params.get("booking_id")
+              if not booking_id:
+                  return _response(400, {"error": "booking_id is required"})
+              try:
+                  result = table.get_item(Key={"booking_id": booking_id})
+                  item = result.get("Item")
+                  if not item:
+                      return _response(404, {"error": "booking not found"})
+                  email = params.get("email")
+                  if email and item.get("email") != email:
+                      return _response(404, {"error": "booking not found"})
+                  concert_name = params.get("concert_name")
+                  if concert_name and item.get("concert_name") != concert_name:
+                      return _response(404, {"error": "booking not found"})
+                  body = {field: item[field] for field in FIELDS if field in item}
+                  return _response(200, body)
+              except Exception as exc:
+                  return _response(500, {"error": str(exc)})
+
+  BookLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: unicorn-alb
+      Type: application
+      Scheme: internal
+      SecurityGroups:
+        - !Ref AlbSecurityGroupId
+      Subnets:
+        - !Ref PrivSubnetA
+        - !Ref PrivSubnetB
+        - !Ref PrivSubnetC
+      Tags:
+        - Key: Name
+          Value: unicorn-alb
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  BookTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: unicorn-tg
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /health
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: '200'
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 15
+      Tags:
+        - Key: Name
+          Value: unicorn-tg
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref GetBookingFunction
+      Principal: elasticloadbalancing.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/unicorn-lambda-tg/*'
+
+  LambdaTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LambdaInvokePermission
+    Properties:
+      Name: unicorn-lambda-tg
+      TargetType: lambda
+      Tags:
+        - Key: Name
+          Value: unicorn-lambda-tg
+      Targets:
+        - Id: !GetAtt GetBookingFunction.Arn
+
+  BookListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref BookLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: Forbidden
+            StatusCode: '403'
+
+  BookListenerRulePost:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref BookListener
+      Priority: 10
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: X-Origin-Verify
+            Values:
+              - !Sub 'unicorn-svc-cf-${AWS::AccountId}'
+        - Field: http-request-method
+          HttpRequestMethodConfig:
+            Values:
+              - POST
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - /v1/book
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref BookTargetGroup
+
+  BookListenerRuleGet:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref BookListener
+      Priority: 20
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: X-Origin-Verify
+            Values:
+              - !Sub 'unicorn-svc-cf-${AWS::AccountId}'
+        - Field: http-request-method
+          HttpRequestMethodConfig:
+            Values:
+              - GET
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - /v1/book
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref LambdaTargetGroup
+
+  BookListenerRuleHealth:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref BookListener
+      Priority: 30
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: X-Origin-Verify
+            Values:
+              - !Sub 'unicorn-svc-cf-${AWS::AccountId}'
+        - Field: http-request-method
+          HttpRequestMethodConfig:
+            Values:
+              - GET
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - /health
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref BookTargetGroup
+
+  GrafanaLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: unicorn-grafana-alb
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref GrafanaAlbSecurityGroupId
+      Subnets:
+        - !Ref PubSubnetA
+        - !Ref PubSubnetB
+        - !Ref PubSubnetC
+      Tags:
+        - Key: Name
+          Value: unicorn-grafana-alb
+
+  GrafanaTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: unicorn-grafana-tg
+      Port: 3000
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /api/health
+      Matcher:
+        HttpCode: '200'
+      HealthCheckIntervalSeconds: 30
+      Tags:
+        - Key: Name
+          Value: unicorn-grafana-tg
+
+  GrafanaListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref GrafanaLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GrafanaTargetGroup
+
+  S3OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: unicorn-oac
+        Description: OAC for unicorn-web bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  AlbVpcOrigin:
+    Type: AWS::CloudFront::VpcOrigin
+    Properties:
+      VpcOriginEndpointConfig:
+        Name: unicorn-alb-vpc-origin
+        Arn: !Ref BookLoadBalancer
+        HTTPPort: 80
+        HTTPSPort: 443
+        OriginProtocolPolicy: http-only
+        OriginSSLProtocols:
+          - TLSv1.2
+      Tags:
+        - Key: Name
+          Value: unicorn-alb-vpc-origin
+
+  UnicornDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: unicorn-svc-cf
+        Enabled: true
+        DefaultRootObject: index.html
+        WebACLId: !Ref WebAclArn
+        PriceClass: PriceClass_200
+        HttpVersion: http2
+        IPV6Enabled: true
+        Origins:
+          - Id: s3-origin
+            DomainName: !Ref S3BucketRegionalDomainName
+            OriginAccessControlId: !GetAtt S3OriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+          - Id: app-origin
+            DomainName: !GetAtt BookLoadBalancer.DNSName
+            VpcOriginConfig:
+              VpcOriginId: !GetAtt AlbVpcOrigin.Id
+            OriginCustomHeaders:
+              - HeaderName: X-Origin-Verify
+                HeaderValue: !Sub 'unicorn-svc-cf-${AWS::AccountId}'
+        DefaultCacheBehavior:
+          TargetOriginId: s3-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CacheBehaviors:
+          - PathPattern: /v1/book
+            TargetOriginId: app-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - DELETE
+              - GET
+              - HEAD
+              - OPTIONS
+              - PATCH
+              - POST
+              - PUT
+            CachedMethods:
+              - GET
+              - HEAD
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          - PathPattern: /health
+            TargetOriginId: app-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+          MinimumProtocolVersion: TLSv1.2_2021
+      Tags:
+        - Key: Name
+          Value: unicorn-svc-cf
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3BucketName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${S3BucketArn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${UnicornDistribution}'
+
+Outputs:
+  CloudFrontDistributionId:
+    Value: !Ref UnicornDistribution
+  CloudFrontDomainName:
+    Value: !GetAtt UnicornDistribution.DomainName
+  BookAlbDnsName:
+    Value: !GetAtt BookLoadBalancer.DNSName
+  BookAlbArn:
+    Value: !Ref BookLoadBalancer
+  BookTargetGroupArn:
+    Value: !Ref BookTargetGroup
+  GrafanaAlbDnsName:
+    Value: !GetAtt GrafanaLoadBalancer.DNSName
+  GrafanaTargetGroupArn:
+    Value: !Ref GrafanaTargetGroup
+  LambdaFunctionArn:
+    Value: !GetAtt GetBookingFunction.Arn
+  LambdaFunctionName:
+    Value: !Ref GetBookingFunction

@@ -1,0 +1,603 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: unicorn day1/007 network (VPC 3AZ, NAT, endpoints, flow logs, SGs)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '007'
+  PlatformKmsReplicaArn:
+    Type: String
+    Description: ap-northeast-2 replica of unicorn-kms-platform (for VPC flow log group)
+  CloudFrontOriginFacingPrefixListId:
+    Type: String
+    Description: com.amazonaws.global.cloudfront.origin-facing managed prefix list id
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.97.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: unicorn-vpc
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: unicorn-igw
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PubSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.97.0.0/24
+      AvailabilityZone: !Sub '${AWS::Region}a'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: unicorn-subnet-pub-a
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  PubSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.97.1.0/24
+      AvailabilityZone: !Sub '${AWS::Region}b'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: unicorn-subnet-pub-b
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  PubSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.97.2.0/24
+      AvailabilityZone: !Sub '${AWS::Region}c'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: unicorn-subnet-pub-c
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  PrivSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.97.10.0/24
+      AvailabilityZone: !Sub '${AWS::Region}a'
+      Tags:
+        - Key: Name
+          Value: unicorn-subnet-priv-a
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  PrivSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.97.11.0/24
+      AvailabilityZone: !Sub '${AWS::Region}b'
+      Tags:
+        - Key: Name
+          Value: unicorn-subnet-priv-b
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  PrivSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.97.12.0/24
+      AvailabilityZone: !Sub '${AWS::Region}c'
+      Tags:
+        - Key: Name
+          Value: unicorn-subnet-priv-c
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  NatEipA:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: unicorn-nat-eip-a
+
+  NatEipB:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: unicorn-nat-eip-b
+
+  NatEipC:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: unicorn-nat-eip-c
+
+  NatGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipA.AllocationId
+      SubnetId: !Ref PubSubnetA
+      Tags:
+        - Key: Name
+          Value: unicorn-nat-a
+
+  NatGatewayB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipB.AllocationId
+      SubnetId: !Ref PubSubnetB
+      Tags:
+        - Key: Name
+          Value: unicorn-nat-b
+
+  NatGatewayC:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipC.AllocationId
+      SubnetId: !Ref PubSubnetC
+      Tags:
+        - Key: Name
+          Value: unicorn-nat-c
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: unicorn-rt-pub
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PubSubnetAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PubSubnetBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  PubSubnetCAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetC
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: unicorn-rt-priv-a
+
+  PrivateRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayA
+
+  PrivSubnetAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivSubnetA
+      RouteTableId: !Ref PrivateRouteTableA
+
+  PrivateRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: unicorn-rt-priv-b
+
+  PrivateRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayB
+
+  PrivSubnetBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivSubnetB
+      RouteTableId: !Ref PrivateRouteTableB
+
+  PrivateRouteTableC:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: unicorn-rt-priv-c
+
+  PrivateRouteC:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableC
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayC
+
+  PrivSubnetCAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivSubnetC
+      RouteTableId: !Ref PrivateRouteTableC
+
+  FlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /unicorn/vpc/flow-logs
+      RetentionInDays: 30
+      KmsKeyId: !Ref PlatformKmsReplicaArn
+
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: unicorn-vpc-flow-log-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: unicorn-vpc-flow-log-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: !Sub '${FlowLogGroup.Arn}:*'
+      Tags:
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  VpcFlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceId: !Ref Vpc
+      ResourceType: VPC
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogDestination: !GetAtt FlowLogGroup.Arn
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+      MaxAggregationInterval: 60
+      Tags:
+        - Key: Name
+          Value: unicorn-vpc-flow-log
+
+  VpceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: unicorn-vpce-sg
+      GroupDescription: Interface VPC endpoints
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt Vpc.CidrBlock
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-sg
+
+  EksClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: unicorn-eks-cluster-sg
+      GroupDescription: EKS control plane ENIs
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: unicorn-eks-cluster-sg
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: unicorn-alb-sg
+      GroupDescription: Internal ALB for unicorn-svc-cf VPC origin
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - Description: VPC CIDR (CloudFront VPC origin ENIs)
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !GetAtt Vpc.CidrBlock
+        - Description: CloudFront origin-facing prefix list
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: !Ref CloudFrontOriginFacingPrefixListId
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: unicorn-alb-sg
+
+  GrafanaAlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: unicorn-grafana-alb-sg
+      GroupDescription: Internet-facing ALB for Grafana
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: unicorn-grafana-alb-sg
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PublicRouteTable
+        - !Ref PrivateRouteTableA
+        - !Ref PrivateRouteTableB
+        - !Ref PrivateRouteTableC
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-s3
+
+  DynamoDbGatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.dynamodb'
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PublicRouteTable
+        - !Ref PrivateRouteTableA
+        - !Ref PrivateRouteTableB
+        - !Ref PrivateRouteTableC
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-dynamodb
+
+  InterfaceEndpointEcrApi:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-ecr.api
+
+  InterfaceEndpointEcrDkr:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-ecr.dkr
+
+  InterfaceEndpointLogs:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-logs
+
+  InterfaceEndpointSts:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sts'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-sts
+
+  InterfaceEndpointEc2:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-ec2
+
+  InterfaceEndpointEks:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.eks'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-eks
+
+  InterfaceEndpointElb:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.elasticloadbalancing'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-elasticloadbalancing
+
+  InterfaceEndpointAsg:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.autoscaling'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-autoscaling
+
+  InterfaceEndpointSsm:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssm'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-ssm
+
+  InterfaceEndpointSsmMessages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssmmessages'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-ssmmessages
+
+  InterfaceEndpointEc2Messages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2messages'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivSubnetA, !Ref PrivSubnetB, !Ref PrivSubnetC]
+      SecurityGroupIds: [!Ref VpceSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: unicorn-vpce-ec2messages
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+  VpcCidr:
+    Value: !GetAtt Vpc.CidrBlock
+  PubSubnetA:
+    Value: !Ref PubSubnetA
+  PubSubnetB:
+    Value: !Ref PubSubnetB
+  PubSubnetC:
+    Value: !Ref PubSubnetC
+  PrivSubnetA:
+    Value: !Ref PrivSubnetA
+  PrivSubnetB:
+    Value: !Ref PrivSubnetB
+  PrivSubnetC:
+    Value: !Ref PrivSubnetC
+  EksClusterSecurityGroupId:
+    Value: !Ref EksClusterSecurityGroup
+  AlbSecurityGroupId:
+    Value: !Ref AlbSecurityGroup
+  GrafanaAlbSecurityGroupId:
+    Value: !Ref GrafanaAlbSecurityGroup

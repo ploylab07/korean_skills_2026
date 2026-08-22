@@ -1,0 +1,343 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: unicorn day1/007 storage (KMS app/data/platform-replica, S3, ECR, DynamoDB)
+
+Metadata:
+  PostDeploy:
+    Description: |
+      S3 index.html / main.jpeg 업로드와 ECR 이미지 push 는 CFN 밖(post-deploy)에서 수행.
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '007'
+  PlatformKmsPrimaryArn:
+    Type: String
+    Description: us-east-1 multi-region primary ARN for unicorn-kms-platform
+
+Resources:
+  AppKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: unicorn-kms-app - Secrets Manager / DynamoDB
+      EnableKeyRotation: true
+      RotationPeriodInDays: 90
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RootAdmin
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowDynamoDB
+            Effect: Allow
+            Principal:
+              Service: dynamodb.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+              - kms:CreateGrant
+              - kms:ReEncrypt*
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 'dynamodb.${AWS::Region}.amazonaws.com'
+          - Sid: AllowSecretsManager
+            Effect: Allow
+            Principal:
+              Service: secretsmanager.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 'secretsmanager.${AWS::Region}.amazonaws.com'
+      Tags:
+        - Key: Name
+          Value: unicorn-kms-app
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  AppKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/unicorn-kms-app
+      TargetKeyId: !Ref AppKmsKey
+
+  DataKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: unicorn-kms-data - S3 / ECR
+      EnableKeyRotation: true
+      RotationPeriodInDays: 90
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RootAdmin
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowS3
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: AllowECR
+            Effect: Allow
+            Principal:
+              Service: ecr.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 'ecr.${AWS::Region}.amazonaws.com'
+      Tags:
+        - Key: Name
+          Value: unicorn-kms-data
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  DataKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/unicorn-kms-data
+      TargetKeyId: !Ref DataKmsKey
+
+  PlatformKmsReplica:
+    Type: AWS::KMS::ReplicaKey
+    Properties:
+      Description: unicorn-kms-platform - EKS secrets / EBS / logs (replica, ap-northeast-2)
+      PrimaryKeyArn: !Ref PlatformKmsPrimaryArn
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RootAdmin
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowEKS
+            Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+              - kms:CreateGrant
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 'eks.${AWS::Region}.amazonaws.com'
+          - Sid: AllowCloudWatchLogs
+            Effect: Allow
+            Principal:
+              Service: !Sub 'logs.${AWS::Region}.amazonaws.com'
+            Action:
+              - kms:Encrypt*
+              - kms:Decrypt*
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              ArnLike:
+                kms:EncryptionContext:aws:logs:arn: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+          - Sid: AllowAutoScalingServiceLinkedRoleForEBS
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling'
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+              - kms:CreateGrant
+            Resource: '*'
+          - Sid: AllowNodeRoleForEBS
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/unicorn-eks-node-role'
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:GenerateDataKey*
+              - kms:CreateGrant
+              - kms:ReEncrypt*
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: unicorn-kms-platform
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  PlatformKmsReplicaAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/unicorn-kms-platform
+      TargetKeyId: !Ref PlatformKmsReplica
+
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'unicorn-web-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt DataKmsKey.Arn
+            BucketKeyEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'unicorn-web-${AWS::AccountId}'
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  ConcertEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: unicorn-concert-app
+      ImageTagMutability: IMMUTABLE_WITH_EXCLUSION
+      ImageTagMutabilityExclusionFilters:
+        - Filter: latest
+          FilterType: WILDCARD
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: KMS
+        KmsKey: !GetAtt DataKmsKey.Arn
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [{
+              "rulePriority": 1,
+              "description": "Keep last 10 tagged images",
+              "selection": {
+                "tagStatus": "tagged",
+                "tagPrefixList": ["v"],
+                "countType": "imageCountMoreThan",
+                "countNumber": 10
+              },
+              "action": { "type": "expire" }
+            }]
+          }
+      Tags:
+        - Key: Name
+          Value: unicorn-concert-app
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  ConcertTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: unicorn-concert-db
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      AttributeDefinitions:
+        - AttributeName: booking_id
+          AttributeType: S
+        - AttributeName: client_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: booking_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: client-id-created-at-index
+          KeySchema:
+            - AttributeName: client_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt AppKmsKey.Arn
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Name
+          Value: unicorn-concert-db
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+Outputs:
+  AppKmsKeyArn:
+    Value: !GetAtt AppKmsKey.Arn
+  DataKmsKeyArn:
+    Value: !GetAtt DataKmsKey.Arn
+  PlatformKmsReplicaArn:
+    Value: !GetAtt PlatformKmsReplica.Arn
+  PlatformKmsReplicaKeyId:
+    Value: !Ref PlatformKmsReplica
+  S3BucketName:
+    Value: !Ref WebBucket
+  S3BucketArn:
+    Value: !GetAtt WebBucket.Arn
+  S3BucketRegionalDomainName:
+    Value: !GetAtt WebBucket.RegionalDomainName
+  DynamoDbTableName:
+    Value: !Ref ConcertTable
+  DynamoDbTableArn:
+    Value: !GetAtt ConcertTable.Arn
+  EcrRepositoryUri:
+    Value: !GetAtt ConcertEcrRepository.RepositoryUri
+  EcrRepositoryName:
+    Value: !Ref ConcertEcrRepository

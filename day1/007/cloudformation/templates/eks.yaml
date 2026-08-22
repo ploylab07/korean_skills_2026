@@ -1,0 +1,436 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: unicorn day1/007 EKS cluster, node groups, IAM, addons
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '007'
+  VpcId:
+    Type: String
+  PrivSubnetA:
+    Type: String
+  PrivSubnetB:
+    Type: String
+  PrivSubnetC:
+    Type: String
+  EksClusterSecurityGroupId:
+    Type: String
+  AlbSecurityGroupId:
+    Type: String
+  GrafanaAlbSecurityGroupId:
+    Type: String
+  PlatformKmsReplicaArn:
+    Type: String
+  DynamoDbTableArn:
+    Type: String
+  AppKmsKeyArn:
+    Type: String
+
+Resources:
+  BookAppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /unicorn/eks/book-app
+      RetentionInDays: 30
+      KmsKeyId: !Ref PlatformKmsReplicaArn
+
+  EksClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: unicorn-eks-cluster-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+      Tags:
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  EksNodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: unicorn-eks-node-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  EksNodeFluentBitPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: unicorn-node-fluentbit-logs
+      Roles:
+        - !Ref EksNodeRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+            Resource: !Sub '${BookAppLogGroup.Arn}:*'
+          - Effect: Allow
+            Action:
+              - logs:DescribeLogGroups
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+          - Effect: Allow
+            Action:
+              - cloudwatch:GetMetricData
+              - cloudwatch:ListMetrics
+            Resource: '*'
+
+  AppLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub 'unicorn-app-${AWS::StackName}'
+      LaunchTemplateData:
+        Description: unicorn app nodes Asia/Seoul KST
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 2
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 4
+              VolumeType: gp3
+              Encrypted: true
+              KmsKeyId: !Ref PlatformKmsReplicaArn
+          - DeviceName: /dev/xvdb
+            Ebs:
+              VolumeSize: 20
+              VolumeType: gp3
+              Encrypted: true
+              KmsKeyId: !Ref PlatformKmsReplicaArn
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: unicorn-k8snode-app-node
+              - Key: NodeGroup
+                Value: app
+              - Key: Project
+                Value: unicorn
+              - Key: Bib
+                Value: !Ref Bibun
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: unicorn-k8snode-app-node
+        UserData: !Base64 |
+          [settings.kubernetes.node-labels]
+          "unicorn" = "app"
+
+  AddonLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub 'unicorn-addon-${AWS::StackName}'
+      LaunchTemplateData:
+        Description: unicorn addon nodes Asia/Seoul KST
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 2
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 4
+              VolumeType: gp3
+              Encrypted: true
+              KmsKeyId: !Ref PlatformKmsReplicaArn
+          - DeviceName: /dev/xvdb
+            Ebs:
+              VolumeSize: 20
+              VolumeType: gp3
+              Encrypted: true
+              KmsKeyId: !Ref PlatformKmsReplicaArn
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: unicorn-k8snode-addon-node
+              - Key: NodeGroup
+                Value: addon
+              - Key: Project
+                Value: unicorn
+              - Key: Bib
+                Value: !Ref Bibun
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: unicorn-k8snode-addon-node
+        UserData: !Base64 |
+          [settings.kubernetes.node-labels]
+          "unicorn" = "addon"
+
+  EksCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: unicorn-eks-cluster
+      Version: '1.35'
+      RoleArn: !GetAtt EksClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds:
+          - !Ref PrivSubnetA
+          - !Ref PrivSubnetB
+          - !Ref PrivSubnetC
+        SecurityGroupIds:
+          - !Ref EksClusterSecurityGroupId
+        EndpointPrivateAccess: true
+        EndpointPublicAccess: true
+        PublicAccessCidrs:
+          - 0.0.0.0/0
+      AccessConfig:
+        AuthenticationMode: API
+        BootstrapClusterCreatorAdminPermissions: true
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - Type: api
+            - Type: audit
+            - Type: authenticator
+            - Type: controllerManager
+            - Type: scheduler
+      EncryptionConfig:
+        - Provider:
+            KeyArn: !Ref PlatformKmsReplicaArn
+          Resources:
+            - secrets
+      Tags:
+        - Key: Name
+          Value: unicorn-eks-cluster
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  ClusterFromBookAlbIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref AlbSecurityGroupId
+
+  ClusterFromGrafanaAlbIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      SourceSecurityGroupId: !Ref GrafanaAlbSecurityGroupId
+
+  AppNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    DependsOn:
+      - EksNodeFluentBitPolicy
+    Properties:
+      ClusterName: !Ref EksCluster
+      NodegroupName: unicorn-eks-app-nodegroup
+      NodeRole: !GetAtt EksNodeRole.Arn
+      Subnets:
+        - !Ref PrivSubnetA
+        - !Ref PrivSubnetB
+        - !Ref PrivSubnetC
+      AmiType: BOTTLEROCKET_x86_64
+      InstanceTypes:
+        - t3.medium
+      CapacityType: ON_DEMAND
+      ScalingConfig:
+        DesiredSize: 3
+        MinSize: 3
+        MaxSize: 4
+      Labels:
+        unicorn: app
+      LaunchTemplate:
+        Id: !Ref AppLaunchTemplate
+        Version: !GetAtt AppLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: unicorn-eks-app-nodegroup
+
+  AddonNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    DependsOn:
+      - EksNodeFluentBitPolicy
+    Properties:
+      ClusterName: !Ref EksCluster
+      NodegroupName: unicorn-eks-addon-nodegroup
+      NodeRole: !GetAtt EksNodeRole.Arn
+      Subnets:
+        - !Ref PrivSubnetA
+        - !Ref PrivSubnetB
+        - !Ref PrivSubnetC
+      AmiType: BOTTLEROCKET_x86_64
+      InstanceTypes:
+        - t3.medium
+      CapacityType: ON_DEMAND
+      ScalingConfig:
+        DesiredSize: 2
+        MinSize: 1
+        MaxSize: 3
+      Labels:
+        unicorn: addon
+      LaunchTemplate:
+        Id: !Ref AddonLaunchTemplate
+        Version: !GetAtt AddonLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: unicorn-eks-addon-nodegroup
+
+  AddonVpcCni:
+    Type: AWS::EKS::Addon
+    Properties:
+      ClusterName: !Ref EksCluster
+      AddonName: vpc-cni
+      ResolveConflicts: OVERWRITE
+
+  AddonKubeProxy:
+    Type: AWS::EKS::Addon
+    Properties:
+      ClusterName: !Ref EksCluster
+      AddonName: kube-proxy
+      ResolveConflicts: OVERWRITE
+
+  AddonCoreDns:
+    Type: AWS::EKS::Addon
+    DependsOn:
+      - AddonNodeGroup
+    Properties:
+      ClusterName: !Ref EksCluster
+      AddonName: coredns
+      ResolveConflicts: OVERWRITE
+
+  AddonPodIdentity:
+    Type: AWS::EKS::Addon
+    DependsOn:
+      - AppNodeGroup
+      - AddonNodeGroup
+    Properties:
+      ClusterName: !Ref EksCluster
+      AddonName: eks-pod-identity-agent
+      ResolveConflicts: OVERWRITE
+
+  BookAppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: unicorn-book-app-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: pods.eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt EksCluster.Arn
+      Policies:
+        - PolicyName: unicorn-book-app-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !Ref DynamoDbTableArn
+                  - !Sub '${DynamoDbTableArn}/index/*'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Resource: !Ref AppKmsKeyArn
+      Tags:
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+  AuditRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: unicorn-audit-role
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Sub 'unicorn-audit-2026${Bibun}'
+      Policies:
+        - PolicyName: unicorn-audit-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DynamoDbReadOnly
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !Ref DynamoDbTableArn
+                  - !Sub '${DynamoDbTableArn}/index/*'
+              - Sid: Ec2DescribeVpcs
+                Effect: Allow
+                Action:
+                  - ec2:DescribeVpcs
+                Resource: '*'
+              - Sid: EksDescribeCluster
+                Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                Resource: !GetAtt EksCluster.Arn
+      Tags:
+        - Key: Project
+          Value: unicorn
+        - Key: Bib
+          Value: !Ref Bibun
+
+Outputs:
+  ClusterName:
+    Value: !Ref EksCluster
+  ClusterArn:
+    Value: !GetAtt EksCluster.Arn
+  ClusterEndpoint:
+    Value: !GetAtt EksCluster.Endpoint
+  ClusterSecurityGroupId:
+    Value: !GetAtt EksCluster.ClusterSecurityGroupId
+  BookAppRoleArn:
+    Value: !GetAtt BookAppRole.Arn
+  AuditRoleArn:
+    Value: !GetAtt AuditRole.Arn
+  EksNodeRoleArn:
+    Value: !GetAtt EksNodeRole.Arn
