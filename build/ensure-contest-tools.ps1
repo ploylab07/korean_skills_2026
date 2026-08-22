@@ -5,11 +5,32 @@
 
 $script:ContestToolsBinDir = Join-Path $PSScriptRoot ".bin"
 
+function Find-ExeUnder {
+    param(
+        [string[]]$Roots,
+        [Parameter(Mandatory = $true)][string]$ExeName,
+        [int]$MaxDepth = 5
+    )
+    foreach ($root in $Roots) {
+        if (-not $root -or -not (Test-Path -LiteralPath $root)) { continue }
+        try {
+            $hit = Get-ChildItem -LiteralPath $root -Filter $ExeName -Recurse -Depth $MaxDepth -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if ($hit) { return $hit.FullName }
+        }
+        catch { }
+    }
+    return $null
+}
+
 function Find-ToolPath {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
-        [string[]]$CandidateExes
+        [string[]]$CandidateExes,
+        [string[]]$SearchRoots = @(),
+        [string]$ExeName = ""
     )
+    if (-not $ExeName) { $ExeName = "$Name.exe" }
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
     if ($cmd -and $cmd.Source) {
         return $cmd.Source
@@ -18,6 +39,9 @@ function Find-ToolPath {
         if ($p -and (Test-Path -LiteralPath $p)) {
             return $p
         }
+    }
+    if ($SearchRoots.Count -gt 0) {
+        return Find-ExeUnder -Roots $SearchRoots -ExeName $ExeName
     }
     return $null
 }
@@ -67,10 +91,53 @@ function Publish-TerraformBinDir {
 }
 
 function Refresh-ProcessPath {
+    try {
+        $sig = @'
+using System;
+using System.Runtime.InteropServices;
+public static class ContestToolsNative {
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessageTimeout(
+        IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lResult);
+}
+'@
+        Add-Type -TypeDefinition $sig -ErrorAction SilentlyContinue | Out-Null
+        [UIntPtr]$ignore = [UIntPtr]::Zero
+        [ContestToolsNative]::SendMessageTimeout(
+            [IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, "Environment", 2, 5000, [ref]$ignore) | Out-Null
+    }
+    catch { }
+
     $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
     $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
     $env:PATH = "$machine;$user"
     Add-PathDir $script:ContestToolsBinDir
+}
+
+function Test-ContestToolsReady {
+    param([hashtable]$Tools)
+    if (-not $Tools.Aws) { return $false }
+    if ($Tools.NeedKubectl -and -not $Tools.Kubectl) { return $false }
+    if ($Tools.NeedHelm -and -not $Tools.Helm) { return $false }
+    if ($Tools.NeedDocker -and -not $Tools.Docker) { return $false }
+    if ($Tools.NeedBash -and -not $Tools.Bash) { return $false }
+    return $true
+}
+
+function Wait-ForContestTools {
+    param(
+        [Parameter(Mandatory = $true)][string]$RelPath,
+        [int]$TimeoutSec = 60
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        Refresh-ProcessPath
+        $t = Resolve-ContestTools -RelPath $RelPath
+        if (Test-ContestToolsReady -Tools $t) { return $t }
+        Start-Sleep -Seconds 2
+    }
+    Refresh-ProcessPath
+    return (Resolve-ContestTools -RelPath $RelPath)
 }
 
 function Test-NeedsBashLocalExec([string]$RelPath) {
@@ -99,6 +166,31 @@ function Install-KubectlPortable {
     $ver = (Invoke-WebRequest -Uri $verUrl -UseBasicParsing).Content.Trim()
     $url = "https://dl.k8s.io/release/$ver/bin/windows/amd64/kubectl.exe"
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+    return $dest
+}
+
+function Install-HelmPortable {
+    New-Item -ItemType Directory -Force -Path $script:ContestToolsBinDir | Out-Null
+    $dest = Join-Path $script:ContestToolsBinDir "helm.exe"
+    if (Test-Path -LiteralPath $dest) { return $dest }
+    Write-Host "Downloading helm to build\.bin ..." -ForegroundColor Yellow
+    $ver = (Invoke-WebRequest -Uri "https://get.helm.sh/helm-latest-version" -UseBasicParsing).Content.Trim()
+    $zip = Join-Path ([System.IO.Path]::GetTempPath()) ("helm-{0}-windows-amd64.zip" -f $ver)
+    $url = "https://get.helm.sh/helm-$ver-windows-amd64.zip"
+    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+    $extract = Join-Path ([System.IO.Path]::GetTempPath()) ("helm-extract-{0}" -f [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $extract | Out-Null
+    try {
+        Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+        $exe = Get-ChildItem -LiteralPath $extract -Filter "helm.exe" -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if (-not $exe) { throw "helm.exe not found in downloaded archive" }
+        Copy-Item -LiteralPath $exe.FullName -Destination $dest -Force
+    }
+    finally {
+        Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+    }
     return $dest
 }
 
@@ -157,7 +249,9 @@ function Try-InstallMissingTools {
         $ok = $false
         try { $ok = Install-WithWinget -Id "Helm.Helm" -Label "Helm" } catch { $ok = $false }
         if (-not $ok) {
-            Write-Host "Helm winget failed. Install from https://helm.sh/docs/intro/install/" -ForegroundColor Yellow
+            try { $null = Install-HelmPortable; $ok = $true } catch {
+                Write-Host ("Helm install failed: {0}" -f $_) -ForegroundColor Red
+            }
         }
     }
     if ($NeedDocker) {
@@ -182,6 +276,14 @@ function Resolve-ContestTools {
     $local = $env:LOCALAPPDATA
     Add-PathDir $script:ContestToolsBinDir
 
+    $programSearchRoots = @(
+        $pf
+        $pf86
+        (Join-Path $local "Programs")
+        (Join-Path $local "Microsoft\WinGet\Links")
+        (Join-Path $local "Microsoft\WinGet\Packages")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+
     $needBash = Test-NeedsBashLocalExec $RelPath
     $needKubectl = Test-NeedsKubectl $RelPath
     $needHelm = Test-NeedsHelm $RelPath
@@ -190,7 +292,8 @@ function Resolve-ContestTools {
     $aws = Find-ToolPath -Name "aws" -CandidateExes @(
         (Join-Path $pf "Amazon\AWSCLIV2\aws.exe")
         (Join-Path $pf86 "Amazon\AWSCLIV2\aws.exe")
-    )
+        (Join-Path $local "Programs\Amazon\AWSCLIV2\aws.exe")
+    ) -SearchRoots $programSearchRoots -ExeName "aws.exe"
     $kubectl = $null
     $helm = $null
     $docker = $null
@@ -205,8 +308,11 @@ function Resolve-ContestTools {
     if ($needHelm) {
         $helm = Find-ToolPath -Name "helm" -CandidateExes @(
             (Join-Path $script:ContestToolsBinDir "helm.exe")
+            (Join-Path $pf "Helm\helm.exe")
+            (Join-Path $pf86 "Helm\helm.exe")
+            (Join-Path $local "Programs\Helm\helm.exe")
             (Join-Path $local "Microsoft\WinGet\Links\helm.exe")
-        )
+        ) -SearchRoots $programSearchRoots -ExeName "helm.exe"
     }
     if ($needDocker) {
         $docker = Find-ToolPath -Name "docker" -CandidateExes @(
@@ -218,7 +324,12 @@ function Resolve-ContestTools {
             (Join-Path $pf "Git\bin\bash.exe")
             (Join-Path $pf "Git\usr\bin\bash.exe")
             (Join-Path $pf86 "Git\bin\bash.exe")
-        )
+            (Join-Path $local "Programs\Git\bin\bash.exe")
+            (Join-Path $local "Programs\Git\usr\bin\bash.exe")
+        ) -SearchRoots @(
+            (Join-Path $pf "Git")
+            (Join-Path $local "Programs\Git")
+        ) -ExeName "bash.exe"
     }
 
     return @{
@@ -306,8 +417,8 @@ function Ensure-ContestTools {
         foreach ($m in $missing) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
         Try-InstallMissingTools -NeedAws (-not $t.Aws) -NeedKubectl ($t.NeedKubectl -and -not $t.Kubectl) `
             -NeedHelm ($t.NeedHelm -and -not $t.Helm) -NeedBash ($t.NeedBash -and -not $t.Bash) -NeedDocker ($t.NeedDocker -and -not $t.Docker)
-        Refresh-ProcessPath
-        $t = Resolve-ContestTools -RelPath $RelPath
+        Write-Host "Waiting for installers to finish (up to 60s) ..." -ForegroundColor Cyan
+        $t = Wait-ForContestTools -RelPath $RelPath -TimeoutSec 60
     }
 
     $still = @()
@@ -322,7 +433,38 @@ function Ensure-ContestTools {
     if ($still.Count -gt 0) {
         Write-Host "[!] Still missing after install attempt:" -ForegroundColor Red
         foreach ($m in $still) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
-        Write-Host "Open a NEW PowerShell after MSI/winget installs, then re-run .\start.cmd" -ForegroundColor Yellow
+        Write-Host "Retrying portable downloads (kubectl/helm) and AWS MSI where possible ..." -ForegroundColor Cyan
+        try {
+            if (-not $t.Aws) {
+                $ok = $false
+                try { $ok = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" } catch { $ok = $false }
+                if (-not $ok) { Install-AwsCliMsi }
+            }
+            if ($t.NeedKubectl -and -not $t.Kubectl) { $null = Install-KubectlPortable }
+            if ($t.NeedHelm -and -not $t.Helm) { $null = Install-HelmPortable }
+        }
+        catch {
+            Write-Host ("Portable retry failed: {0}" -f $_) -ForegroundColor Red
+        }
+        Refresh-ProcessPath
+        $t = Resolve-ContestTools -RelPath $RelPath
+
+        $still = @()
+        if (-not $t.Aws) { $still += "AWS CLI v2 - https://aws.amazon.com/cli/" }
+        if ($t.NeedKubectl -and -not $t.Kubectl) { $still += "kubectl - will retry download on next run" }
+        if ($t.NeedHelm -and -not $t.Helm) { $still += "Helm - https://helm.sh/docs/intro/install/" }
+        if ($t.NeedDocker -and -not $t.Docker) {
+            $still += "Docker Desktop - install + START it, then re-run .\start.cmd (https://www.docker.com/products/docker-desktop/)"
+        }
+        if ($t.NeedBash -and -not $t.Bash) { $still += "Git for Windows - https://git-scm.com/download/win" }
+    }
+
+    if ($still.Count -gt 0) {
+        Write-Host "[!] Still missing after install attempt:" -ForegroundColor Red
+        foreach ($m in $still) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
+        Write-Host "Manual fix (Admin PowerShell):" -ForegroundColor Yellow
+        Write-Host "  winget install -e --id Amazon.AWSCLI Git.Git Helm.Helm --accept-package-agreements" -ForegroundColor Yellow
+        Write-Host "Or open a NEW PowerShell after MSI/winget installs, then re-run .\start.cmd" -ForegroundColor Yellow
         throw "Contest tools missing"
     }
 
