@@ -79,6 +79,18 @@ resource "aws_cloudfront_distribution" "main" {
     }
   }
 
+  # RC marking 9-2/9-3: GET /reserv-query → ALB → Lambda
+  ordered_cache_behavior {
+    path_pattern             = "/reserv-query*"
+    target_origin_id         = "wskorea26-alb-origin"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS"]
+    cached_methods           = ["GET", "HEAD"]
+    compress                 = true
+    cache_policy_id          = local.cache_policy_disabled
+    origin_request_policy_id = local.origin_req_all_viewer
+  }
+
   restrictions {
     geo_restriction {
       restriction_type = "none"

@@ -8,12 +8,12 @@
   "panels": [
     {
       "type": "timeseries",
-      "title": "Container CPU Usage",
+      "title": "Book App CPU Utilization",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "id": 1,
       "targets": [{
-        "expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\",container!=\"POD\"}[5m])) by (pod, container)",
-        "legendFormat": "{{pod}}/{{container}}",
+        "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"wskorea26\",pod=~\"book.*\",container!=\"\",container!=\"POD\"}[5m])) by (pod, container)",
+        "legendFormat": "{{pod}}/{{container}} Utilization",
         "refId": "A"
       }],
       "datasource": {"type": "prometheus", "uid": "prometheus"}

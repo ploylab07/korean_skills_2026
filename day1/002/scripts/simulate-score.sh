@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# File-based scoring simulation against 1과제_채점기준.pdf (total 30 = 100%)
+# File-based scoring simulation against day1_02_release_candidate_marking.pdf (total 27 = 100%)
 # No live AWS required.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -8,9 +8,8 @@ MISS=0
 ok()  { local pts="$1"; shift; echo "[PASS +${pts}] $*"; SCORE="$(awk -v a="$SCORE" -v b="$pts" 'BEGIN{printf "%.1f", a+b}')"; }
 bad() { local pts="$1"; shift; echo "[FAIL -${pts}] $*"; MISS="$(awk -v a="$MISS" -v b="$pts" 'BEGIN{printf "%.1f", a+b}')"; }
 has() { grep -qE "$2" "$1" 2>/dev/null; }
-hasf() { grep -qE "$2" "$1" 2>/dev/null; }
 
-echo "=== day1/002 score simulation (채점기준 30점 = 100%) ==="
+echo "=== day1/002 score simulation (RC 채점기준 27점 = 100%) ==="
 echo "root: $ROOT"
 echo
 
@@ -61,24 +60,25 @@ else
   bad 1.0 "2-2 S3 Configuration"
 fi
 
-# ----- 3 ECR (1.5) -----
+# ----- 3 ECR (1.0) -----
 if has "$ROOT/storage.tf" 'wskorea26-book-repo' \
   && has "$ROOT/storage.tf" 'scan_on_push\s*=\s*true' \
   && has "$ROOT/storage.tf" 'encryption_type\s*=\s*"KMS"' \
   && has "$ROOT/storage.tf" ':stable' \
   && has "$ROOT/kms.tf" 'alias/wskorea26-ecr-key'; then
-  ok 1.5 "3-1 ECR Repository & Image"
+  ok 1.0 "3-1 ECR Repository & Image"
 else
-  bad 1.5 "3-1 ECR Repository & Image"
+  bad 1.0 "3-1 ECR Repository & Image"
 fi
 
 # ----- 4 DynamoDB (1.0) -----
 if has "$ROOT/storage.tf" 'wskorea26-data-table' \
   && has "$ROOT/storage.tf" 'hash_key\s*=\s*"client_id"' \
   && has "$ROOT/storage.tf" 'deletion_protection_enabled\s*=\s*true' \
+  && has "$ROOT/storage.tf" 'concert_name-created_at-index' \
   && has "$ROOT/kms.tf" 'alias/wskorea26-dynamodb-key' \
   && has "$ROOT/storage.tf" 'aws_kms_key.dynamodb'; then
-  ok 1.0 "4-1 DynamoDB Configuration"
+  ok 1.0 "4-1 DynamoDB Configuration (GSI+KMS)"
 else
   bad 1.0 "4-1 DynamoDB Configuration"
 fi
@@ -104,7 +104,7 @@ else
   bad 1.0 "5-2 Cluster Encryption & Networking"
 fi
 
-# 5-3 Node Configuration 1.5
+# 5-3 Node Configuration 1.5 (RC: name+instanceType+priv subnets; Name tag은 문제요구로 유지)
 if has "$ROOT/eks.tf" 'wskorea26-addon-ng' && has "$ROOT/eks.tf" 'wskorea26-app-ng' \
   && has "$ROOT/eks.tf" 't3.medium' \
   && has "$ROOT/eks.tf" 'Name = "wskorea26-addon-node"' \
@@ -133,7 +133,8 @@ if has "$ROOT/lambda.tf" 'wskorea26-book-lambda' && has "$ROOT/lambda.tf" 'pytho
   && has "$ROOT/lambda.tf" 'TABLE_NAME' \
   && has "$ROOT/lambda/lambda_function.py" 'ScanIndexForward=False' \
   && has "$ROOT/lambda/lambda_function.py" 'timedelta\(hours=9\)' \
-  && has "$ROOT/lambda/lambda_function.py" 'concert_name is required'; then
+  && has "$ROOT/lambda/lambda_function.py" 'concert_name is required' \
+  && has "$ROOT/lambda/lambda_function.py" 'booking_id'; then
   ok 1.0 "6-1 Function Configuration"
 else
   bad 1.0 "6-1 Function Configuration"
@@ -152,8 +153,9 @@ fi
 if has "$ROOT/alb.tf" 'X-Origin-Verify' && has "$ROOT/alb.tf" 'wskorea26-cf' \
   && has "$ROOT/alb.tf" 'status_code\s*=\s*"403"' \
   && has "$ROOT/alb.tf" 'aws_lb_target_group.book' \
-  && has "$ROOT/alb.tf" 'aws_lb_target_group.lambda'; then
-  ok 1.5 "7-2 ALB Rules Configuration"
+  && has "$ROOT/alb.tf" 'aws_lb_target_group.lambda' \
+  && has "$ROOT/alb.tf" '/reserv-query'; then
+  ok 1.5 "7-2 ALB Rules Configuration (/reserv-query GET)"
 else
   bad 1.5 "7-2 ALB Rules Configuration"
 fi
@@ -173,9 +175,10 @@ else
   bad 1.5 "8-2 Origin Configuration"
 fi
 
-# 8-3 Behaviors 1.5
+# 8-3 Behaviors 1.5 (/book* or /book → ALB; /reserv-query* → ALB)
 if has "$ROOT/cloudfront.tf" 'redirect-to-https' \
-  && has "$ROOT/cloudfront.tf" '/book\*' \
+  && (has "$ROOT/cloudfront.tf" '/book\*' || has "$ROOT/cloudfront.tf" 'path_pattern.*=.*"/book"') \
+  && has "$ROOT/cloudfront.tf" '/reserv-query' \
   && grep -A6 'default_cache_behavior' "$ROOT/cloudfront.tf" | grep -q 'wskorea26-s3-origin' \
   && grep -A12 'ordered_cache_behavior' "$ROOT/cloudfront.tf" | grep -q 'wskorea26-alb-origin'; then
   ok 1.5 "8-3 Distribution Policy Configuration"
@@ -204,26 +207,28 @@ fi
 # 9-1 POST 1.5 — CF rewrite /book → /v1/book + ALB POST → book TG
 if has "$ROOT/cloudfront.tf" '/v1/book' && has "$ROOT/alb.tf" 'POST' \
   && has "$ROOT/k8s.tf" 'TABLE_NAME' && has "$ROOT/k8s.tf" ':stable'; then
-  ok 1.5 "9-1 Application POST (/v1/book rewrite)"
+  ok 1.5 "9-1 Application POST (/book → /v1/book)"
 else
   bad 1.5 "9-1 Application POST"
 fi
 
-# 9-2 GET 1.5 — ALB GET → Lambda + KST sort + POST field order
+# 9-2 GET 1.5 — RC marking: /reserv-query → Lambda
 if has "$ROOT/alb.tf" 'aws_lb_target_group.lambda' \
-  && grep -A25 'get_book' "$ROOT/alb.tf" | grep -q 'GET' \
+  && has "$ROOT/alb.tf" '/reserv-query' \
+  && grep -A25 'get_book\|get_reserv\|reserv-query' "$ROOT/alb.tf" | grep -q 'GET' \
   && has "$ROOT/lambda/lambda_function.py" 'ScanIndexForward=False' \
   && has "$ROOT/lambda/lambda_function.py" 'timedelta\(hours=9\)' \
-  && has "$ROOT/lambda/lambda_function.py" 'client_id.*username.*email.*concert_name.*created_at'; then
-  ok 1.5 "9-2 Application GET"
+  && has "$ROOT/lambda/lambda_function.py" 'booking_id'; then
+  ok 1.5 "9-2 Application GET (/reserv-query)"
 else
   bad 1.5 "9-2 Application GET"
 fi
 
-# 9-3 ERROR 1.5 — missing concert_name → 400
+# 9-3 ERROR 1.5 — missing concert_name → 400 on /reserv-query
 if has "$ROOT/lambda/lambda_function.py" 'concert_name is required' \
-  && has "$ROOT/lambda/lambda_function.py" 'statusCode'; then
-  ok 1.5 "9-3 Application ERROR (400)"
+  && has "$ROOT/lambda/lambda_function.py" 'statusCode' \
+  && has "$ROOT/d1-02-mark.sh" 'reserv-query'; then
+  ok 1.5 "9-3 Application ERROR (400 /reserv-query)"
 else
   bad 1.5 "9-3 Application ERROR"
 fi
@@ -238,43 +243,20 @@ else
   bad 1.5 "9-4 Application Operation"
 fi
 
-# ----- 10 Monitoring (3.5) -----
-# Map: Dashboard/CPU+Mem 1.5, POD 0.5? Official detail lists 1.5+1.5+1+1 but major=3.5
-# Use major total 3.5 split: dashboard panels 1.5, grafana auth/ALB 1.0, addon-only+fluentbit 1.0
-MON_OK=0
-if has "$ROOT/k8s/monitoring/dashboard.json" 'Container CPU Usage' \
-  && has "$ROOT/k8s/monitoring/dashboard.json" 'Container Memory Usage' \
+# ----- 10 Monitoring (1.0) — RC: Grafana Dashboard Check only (book CPU) -----
+if (has "$ROOT/k8s/monitoring/dashboard.json" 'Container CPU' \
+     || has "$ROOT/k8s/monitoring/dashboard.json" 'CPU Utilization' \
+     || has "$ROOT/k8s/monitoring/dashboard.json" 'Book.*CPU') \
   && has "$ROOT/k8s/monitoring/dashboard.json" '"wskorea26-monitoring"' \
-  && has "$ROOT/k8s/monitoring/dashboard.json" '"uid": "wskorea26"'; then
-  ok 1.5 "10-1 Grafana Dashboard (CPU/Memory)"
-  MON_OK=1
+  && has "$ROOT/k8s/monitoring/dashboard.json" '"uid": "wskorea26"' \
+  && has "$ROOT/locals.tf" 'skills-\${var.bibun}-admin' \
+  && has "$ROOT/alb.tf" 'wskorea26-grafana-alb'; then
+  ok 1.0 "10-1 Grafana Dashboard Check (book CPU)"
 else
-  bad 1.5 "10-1 Grafana Dashboard"
+  bad 1.0 "10-1 Grafana Dashboard Check"
 fi
 
-if has "$ROOT/k8s/monitoring/dashboard.json" 'Running Pods' \
-  && has "$ROOT/k8s/monitoring/dashboard.json" 'Container Restarts' \
-  && has "$ROOT/k8s/monitoring/dashboard.json" 'Container Network Receive'; then
-  # POD 1.0 + RESTART/NETWORK folded into remaining 1.0 of major 3.5 after 1.5 dashboard
-  # Allocate: pods/restarts/network share of remaining 2.0 → use 1.0 here + 1.0 infra below = 2.0
-  ok 1.0 "10-2/3/4 POD + RESTART + NETWORK panels"
-else
-  bad 1.0 "10-2/3/4 POD/RESTART/NETWORK panels"
-fi
-
-if has "$ROOT/locals.tf" 'skills-\${var.bibun}-admin' \
-  && has "$ROOT/alb.tf" 'wskorea26-grafana-alb' \
-  && has "$ROOT/k8s.tf" 'prometheus.enabled' \
-  && ! grep -A1 'name\s*=\s*"prometheus.enabled"' "$ROOT/k8s.tf" | grep -q 'false' \
-  && (has "$ROOT/k8s.tf" 'fluent_bit' || has "$ROOT/k8s.tf" 'aws-for-fluent-bit') \
-  && has "$ROOT/k8s.tf" 'grafana.nodeSelector.node-type' \
-  && ! grep -A5 'prometheus-node-exporter' "$ROOT/k8s/monitoring/values.yaml" | grep -q 'operator: Exists'; then
-  ok 1.0 "10 Monitoring infra (Grafana user/ALB/Prometheus/FluentBit/addon-only)"
-else
-  bad 1.0 "10 Monitoring infra"
-fi
-
-PCT="$(awk -v s="$SCORE" 'BEGIN{printf "%.1f", (s/30.0)*100}')"
+PCT="$(awk -v s="$SCORE" 'BEGIN{printf "%.1f", (s/27.0)*100}')"
 echo
-echo "=== SCORE: ${SCORE} / 30.0  (${PCT}%)  missed=${MISS} ==="
-awk -v s="$SCORE" 'BEGIN{exit !(s+0 >= 30.0)}'
+echo "=== SCORE: ${SCORE} / 27.0  (${PCT}%)  missed=${MISS} ==="
+awk -v s="$SCORE" 'BEGIN{exit !(s+0 >= 27.0)}'

@@ -90,6 +90,7 @@ resource "aws_lb_listener_rule" "post_book" {
   }
 }
 
+# RC marking 9-2/9-3: GET /reserv-query → Lambda (TP Reference03도 /book GET 허용)
 resource "aws_lb_listener_rule" "get_book" {
   listener_arn = aws_lb_listener.book.arn
   priority     = 20
@@ -114,7 +115,7 @@ resource "aws_lb_listener_rule" "get_book" {
 
   condition {
     path_pattern {
-      values = ["/book*"]
+      values = ["/reserv-query*", "/book*"]
     }
   }
 }

@@ -6,8 +6,8 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from decimal import Decimal
 
-# 9-2-A 채점: POST 바디와 같은 키 순서
-ITEM_FIELDS = ("client_id", "username", "email", "concert_name", "created_at")
+# 9-2-A 채점: booking_id 포함 (값은 9-1과 일치해야 함)
+ITEM_FIELDS = ("client_id", "username", "email", "concert_name", "booking_id", "created_at")
 
 TABLE_NAME = os.environ["TABLE_NAME"]
 INDEX_NAME = os.environ.get("INDEX_NAME", "concert_name-created_at-index")
