@@ -300,16 +300,64 @@ function Invoke-TfImportQuiet {
     }
 }
 
+function Remove-Day1002OrphanAws {
+    # When EKS is gone, terraform import fails (kubernetes/helm provider needs cluster endpoint).
+    # Delete name-colliding leftovers so a fresh apply can recreate them.
+    Write-Host ">>> EKS absent — remove colliding AWS leftovers (no terraform import)" -ForegroundColor Cyan
+    $fn = Get-AwsText cloudfront list-functions --query "FunctionList.Items[?Name=='wskorea26-book-rewrite'].Name" --output text
+    if ($fn) {
+        $etag = Get-AwsText cloudfront describe-function --name $fn --query ETag --output text
+        if ($etag) {
+            Write-Host "  delete CloudFront function $fn"
+            $null = Invoke-AwsQuiet cloudfront delete-function --name $fn --if-match $etag
+        }
+    }
+    $oac = Get-AwsText cloudfront list-origin-access-controls --query "OriginAccessControlList.Items[?Name=='wskorea26-s3-oac'].Id" --output text
+    $oacId = (@($oac -split '\s+') | Where-Object { $_ }) | Select-Object -First 1
+    if ($oacId) {
+        $etag = Get-AwsText cloudfront get-origin-access-control --id $oacId --query ETag --output text
+        Write-Host "  delete OAC $oacId"
+        $null = Invoke-AwsQuiet cloudfront delete-origin-access-control --id $oacId --if-match $etag
+    }
+    $lg = Get-AwsText logs describe-log-groups --log-group-name-prefix "/codebuild/wskorea26-book" --query "logGroups[?logGroupName=='/codebuild/wskorea26-book'].logGroupName | [0]" --output text
+    if ($lg) {
+        Write-Host "  delete log group $lg"
+        $null = Invoke-AwsQuiet logs delete-log-group --log-group-name $lg
+    }
+    $bucket = Get-AwsText s3api list-buckets --query "Buckets[?starts_with(Name, 'wskorea26-concert-bucket-')].Name | [0]" --output text
+    if ($bucket) {
+        Write-Host "  delete bucket $bucket (owned by this account)"
+        $null = Invoke-AwsQuiet s3 rm "s3://$bucket" --recursive
+        $null = Invoke-AwsQuiet s3api delete-bucket --bucket $bucket
+    }
+    else {
+        Write-Host "  note: wskorea26-concert-bucket-* not in this account (global name may still be taken)" -ForegroundColor DarkYellow
+    }
+}
+
 function Import-Day1002Orphans([string]$AssignPath) {
     Write-Host ">>> Adopt leftover AWS names into terraform state (avoids 409 AlreadyExists)" -ForegroundColor Cyan
     . (Join-Path $BuildDir "cleanup-wskorea26.ps1")
+
+    $cluster = Get-AwsText eks describe-cluster --name wskorea26-cluster --query "cluster.name" --output text
+    if (-not $cluster) {
+        Remove-Day1002OrphanAws
+        return
+    }
+
     $bucket = Get-AwsText s3api list-buckets --query "Buckets[?starts_with(Name, 'wskorea26-concert-bucket-')].Name | [0]" --output text
     Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_s3_bucket.web" -Id $bucket
-    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_function.rewrite" -Id "wskorea26-book-rewrite"
+
+    $fn = Get-AwsText cloudfront list-functions --query "FunctionList.Items[?Name=='wskorea26-book-rewrite'].Name" --output text
+    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_function.rewrite" -Id $fn
+
     $oac = Get-AwsText cloudfront list-origin-access-controls --query "OriginAccessControlList.Items[?Name=='wskorea26-s3-oac'].Id" --output text
     $oacId = (@($oac -split '\s+') | Where-Object { $_ }) | Select-Object -First 1
     Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_origin_access_control.s3" -Id $oacId
-    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "module.book_image.aws_cloudwatch_log_group.build" -Id "/codebuild/wskorea26-book"
+
+    $lg = Get-AwsText logs describe-log-groups --log-group-name-prefix "/codebuild/wskorea26-book" --query "logGroups[?logGroupName=='/codebuild/wskorea26-book'].logGroupName | [0]" --output text
+    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "module.book_image.aws_cloudwatch_log_group.build" -Id $lg
+
     $dist = Get-AwsText cloudfront list-distributions --query "DistributionList.Items[?Comment=='wskorea26-concert-cf'].Id" --output text
     $distId = (@($dist -split '\s+') | Where-Object { $_ }) | Select-Object -First 1
     Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_distribution.main" -Id $distId
