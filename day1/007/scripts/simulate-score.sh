@@ -264,7 +264,7 @@ fi
 if has "$ROOT/observability.tf" 'kubeControllerManager.enabled' \
   && has "$ROOT/observability.tf" 'kubeScheduler.enabled' \
   && has "$ROOT/observability.tf" 'kubeEtcd.enabled' \
-  && grep -A0 'kubeControllerManager.enabled' "$ROOT/observability.tf" | grep -q 'false' \
+  && grep -A1 'kubeControllerManager.enabled' "$ROOT/observability.tf" | grep -q 'false' \
   && has "$ROOT/observability.tf" 'kube-prometheus-stack'; then
   ok 0.5 "11-2 Prometheus Metrics"
 else
