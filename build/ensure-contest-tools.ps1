@@ -59,7 +59,7 @@ function Find-ToolPath {
     )
     if (-not $ExeName) { $ExeName = "$Name.exe" }
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
-    if ($cmd -and $cmd.Source) {
+    if ($cmd -and $cmd.Source -and (Test-Path -LiteralPath $cmd.Source)) {
         return $cmd.Source
     }
     foreach ($p in $CandidateExes) {
@@ -280,6 +280,115 @@ function Install-WithWinget([string]$Id, [string]$Label) {
     return ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) # already installed
 }
 
+function Get-StandardToolPaths {
+    $pf = ${env:ProgramFiles}
+    $pf86 = ${env:ProgramFiles(x86)}
+    $local = $env:LOCALAPPDATA
+    $programSearchRoots = @(
+        $pf
+        $pf86
+        (Join-Path $local "Programs")
+        (Join-Path $local "Microsoft\WinGet\Links")
+        (Join-Path $local "Microsoft\WinGet\Packages")
+        (Join-Path $pf "Amazon")
+        (Join-Path $pf "Git")
+        (Join-Path $pf "Helm")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    $awsSearchRoots = @(
+        (Join-Path $pf "Amazon")
+        (Join-Path $pf86 "Amazon")
+        (Join-Path $local "Programs\Amazon")
+        (Join-Path $local "Microsoft\WinGet\Packages")
+        $pf
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    return @{
+        Pf                 = $pf
+        Pf86               = $pf86
+        Local              = $local
+        ProgramSearchRoots = $programSearchRoots
+        AwsSearchRoots     = $awsSearchRoots
+    }
+}
+
+function Find-AwsExePath {
+    $ctx = Get-StandardToolPaths
+    return Find-ToolPath -Name "aws" -CandidateExes @(
+        (Join-Path $ctx.Pf "Amazon\AWSCLIV2\aws.exe")
+        (Join-Path $ctx.Pf86 "Amazon\AWSCLIV2\aws.exe")
+        (Join-Path $ctx.Local "Programs\Amazon\AWSCLIV2\aws.exe")
+    ) -SearchRoots $ctx.AwsSearchRoots -ExeName "aws.exe"
+}
+
+function Find-BashExePath {
+    $ctx = Get-StandardToolPaths
+    return Find-ToolPath -Name "bash" -CandidateExes @(
+        (Join-Path $ctx.Pf "Git\bin\bash.exe")
+        (Join-Path $ctx.Pf "Git\usr\bin\bash.exe")
+        (Join-Path $ctx.Pf86 "Git\bin\bash.exe")
+        (Join-Path $ctx.Local "Programs\Git\bin\bash.exe")
+        (Join-Path $ctx.Local "Programs\Git\usr\bin\bash.exe")
+    ) -SearchRoots @(
+        (Join-Path $ctx.Pf "Git")
+        (Join-Path $ctx.Local "Programs\Git")
+        $ctx.Pf
+    ) -ExeName "bash.exe"
+}
+
+function Find-HelmExePath {
+    $ctx = Get-StandardToolPaths
+    return Find-ToolPath -Name "helm" -CandidateExes @(
+        (Join-Path $script:ContestToolsBinDir "helm.exe")
+        (Join-Path $ctx.Pf "Helm\helm.exe")
+        (Join-Path $ctx.Pf86 "Helm\helm.exe")
+        (Join-Path $ctx.Local "Programs\Helm\helm.exe")
+        (Join-Path $ctx.Local "Microsoft\WinGet\Links\helm.exe")
+    ) -SearchRoots $ctx.ProgramSearchRoots -ExeName "helm.exe"
+}
+
+function Find-KubectlExePath {
+    $ctx = Get-StandardToolPaths
+    return Find-ToolPath -Name "kubectl" -CandidateExes @(
+        (Join-Path $script:ContestToolsBinDir "kubectl.exe")
+        (Join-Path $ctx.Pf "Docker\Docker\resources\bin\kubectl.exe")
+        (Join-Path $ctx.Local "Microsoft\WinGet\Links\kubectl.exe")
+    )
+}
+
+function Install-AwsIfMissing {
+    Refresh-ProcessPath
+    $aws = Find-AwsExePath
+    if ($aws) { return $aws }
+    try { $null = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" } catch { }
+    Refresh-ProcessPath
+    $aws = Find-AwsExePath
+    if ($aws) { return $aws }
+    Write-Host "AWS CLI not found after winget; trying MSI ..." -ForegroundColor Yellow
+    return Install-AwsCliMsi
+}
+
+function Install-GitIfMissing {
+    Refresh-ProcessPath
+    $bash = Find-BashExePath
+    if ($bash) { return $bash }
+    try { $null = Install-WithWinget -Id "Git.Git" -Label "Git for Windows" } catch { }
+    Refresh-ProcessPath
+    $bash = Find-BashExePath
+    if ($bash) { return $bash }
+    Write-Host "Git not found after winget; trying silent installer ..." -ForegroundColor Yellow
+    return Install-GitSilent
+}
+
+function Install-HelmIfMissing {
+    Refresh-ProcessPath
+    $helm = Find-HelmExePath
+    if ($helm) { return $helm }
+    try { $null = Install-WithWinget -Id "Helm.Helm" -Label "Helm" } catch { }
+    Refresh-ProcessPath
+    $helm = Find-HelmExePath
+    if ($helm) { return $helm }
+    Write-Host "Helm not found after winget; trying portable download ..." -ForegroundColor Yellow
+    return Install-HelmPortable
+}
 function Try-InstallMissingTools {
     param(
         [bool]$NeedAws,
@@ -289,7 +398,7 @@ function Try-InstallMissingTools {
         [bool]$NeedDocker
     )
     Write-Host ""
-    Write-Host "Auto-install missing tools? (kubectl download / AWS MSI / Git winget)" -ForegroundColor Cyan
+    Write-Host "Auto-install missing tools? (AWS MSI / Git silent / kubectl+helm download)" -ForegroundColor Cyan
     Write-Host "Docker Desktop still needs a manual install if missing." -ForegroundColor Yellow
     $ans = Read-Host "Install now? [Y/n]"
     if ($ans -match '^[Nn]') { return }
@@ -298,30 +407,16 @@ function Try-InstallMissingTools {
         try { $null = Install-KubectlPortable } catch { Write-Host ("kubectl download failed: {0}" -f $_) -ForegroundColor Red }
     }
     if ($NeedAws) {
-        $ok = $false
-        try { $ok = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" } catch { $ok = $false }
-        if (-not $ok) {
-            try { $null = Install-AwsCliMsi } catch { Write-Host ("AWS CLI install failed: {0}" -f $_) -ForegroundColor Red }
-        }
+        try { $null = Install-AwsIfMissing } catch { Write-Host ("AWS CLI install failed: {0}" -f $_) -ForegroundColor Red }
     }
     if ($NeedBash) {
-        $ok = $false
-        try { $ok = Install-WithWinget -Id "Git.Git" -Label "Git for Windows" } catch { $ok = $false }
-        if (-not $ok) {
-            try { $null = Install-GitSilent } catch {
-                Write-Host ("Git install failed: {0}" -f $_) -ForegroundColor Red
-                Write-Host "Install manually: https://git-scm.com/download/win" -ForegroundColor Yellow
-            }
+        try { $null = Install-GitIfMissing } catch {
+            Write-Host ("Git install failed: {0}" -f $_) -ForegroundColor Red
+            Write-Host "Install manually: https://git-scm.com/download/win" -ForegroundColor Yellow
         }
     }
     if ($NeedHelm) {
-        $ok = $false
-        try { $ok = Install-WithWinget -Id "Helm.Helm" -Label "Helm" } catch { $ok = $false }
-        if (-not $ok) {
-            try { $null = Install-HelmPortable; $ok = $true } catch {
-                Write-Host ("Helm install failed: {0}" -f $_) -ForegroundColor Red
-            }
-        }
+        try { $null = Install-HelmIfMissing } catch { Write-Host ("Helm install failed: {0}" -f $_) -ForegroundColor Red }
     }
     if ($NeedDocker) {
         $ok = $false
@@ -340,76 +435,27 @@ function Try-InstallMissingTools {
 function Resolve-ContestTools {
     param([string]$RelPath)
 
-    $pf = ${env:ProgramFiles}
-    $pf86 = ${env:ProgramFiles(x86)}
-    $local = $env:LOCALAPPDATA
     Add-PathDir $script:ContestToolsBinDir
-
-    $programSearchRoots = @(
-        $pf
-        $pf86
-        (Join-Path $local "Programs")
-        (Join-Path $local "Microsoft\WinGet\Links")
-        (Join-Path $local "Microsoft\WinGet\Packages")
-        (Join-Path $pf "Amazon")
-        (Join-Path $pf "Git")
-        (Join-Path $pf "Helm")
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-
-    $awsSearchRoots = @(
-        (Join-Path $pf "Amazon")
-        (Join-Path $pf86 "Amazon")
-        (Join-Path $local "Programs\Amazon")
-        (Join-Path $local "Microsoft\WinGet\Packages")
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
 
     $needBash = Test-NeedsBashLocalExec $RelPath
     $needKubectl = Test-NeedsKubectl $RelPath
     $needHelm = Test-NeedsHelm $RelPath
     $needDocker = Test-NeedsDocker $RelPath
 
-    $aws = Find-ToolPath -Name "aws" -CandidateExes @(
-        (Join-Path $pf "Amazon\AWSCLIV2\aws.exe")
-        (Join-Path $pf86 "Amazon\AWSCLIV2\aws.exe")
-        (Join-Path $local "Programs\Amazon\AWSCLIV2\aws.exe")
-    ) -SearchRoots $awsSearchRoots -ExeName "aws.exe"
+    $aws = Find-AwsExePath
     $kubectl = $null
     $helm = $null
     $docker = $null
     $bash = $null
-    if ($needKubectl) {
-        $kubectl = Find-ToolPath -Name "kubectl" -CandidateExes @(
-            (Join-Path $script:ContestToolsBinDir "kubectl.exe")
-            (Join-Path $pf "Docker\Docker\resources\bin\kubectl.exe")
-            (Join-Path $local "Microsoft\WinGet\Links\kubectl.exe")
-        )
-    }
-    if ($needHelm) {
-        $helm = Find-ToolPath -Name "helm" -CandidateExes @(
-            (Join-Path $script:ContestToolsBinDir "helm.exe")
-            (Join-Path $pf "Helm\helm.exe")
-            (Join-Path $pf86 "Helm\helm.exe")
-            (Join-Path $local "Programs\Helm\helm.exe")
-            (Join-Path $local "Microsoft\WinGet\Links\helm.exe")
-        ) -SearchRoots $programSearchRoots -ExeName "helm.exe"
-    }
+    if ($needKubectl) { $kubectl = Find-KubectlExePath }
+    if ($needHelm) { $helm = Find-HelmExePath }
     if ($needDocker) {
+        $ctx = Get-StandardToolPaths
         $docker = Find-ToolPath -Name "docker" -CandidateExes @(
-            (Join-Path $pf "Docker\Docker\resources\bin\docker.exe")
+            (Join-Path $ctx.Pf "Docker\Docker\resources\bin\docker.exe")
         )
     }
-    if ($needBash) {
-        $bash = Find-ToolPath -Name "bash" -CandidateExes @(
-            (Join-Path $pf "Git\bin\bash.exe")
-            (Join-Path $pf "Git\usr\bin\bash.exe")
-            (Join-Path $pf86 "Git\bin\bash.exe")
-            (Join-Path $local "Programs\Git\bin\bash.exe")
-            (Join-Path $local "Programs\Git\usr\bin\bash.exe")
-        ) -SearchRoots @(
-            (Join-Path $pf "Git")
-            (Join-Path $local "Programs\Git")
-        ) -ExeName "bash.exe"
-    }
+    if ($needBash) { $bash = Find-BashExePath }
 
     return @{
         NeedBash    = $needBash
@@ -496,8 +542,8 @@ function Ensure-ContestTools {
         foreach ($m in $missing) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
         Try-InstallMissingTools -NeedAws (-not $t.Aws) -NeedKubectl ($t.NeedKubectl -and -not $t.Kubectl) `
             -NeedHelm ($t.NeedHelm -and -not $t.Helm) -NeedBash ($t.NeedBash -and -not $t.Bash) -NeedDocker ($t.NeedDocker -and -not $t.Docker)
-        Write-Host "Waiting for installers to finish (up to 60s) ..." -ForegroundColor Cyan
-        $t = Wait-ForContestTools -RelPath $RelPath -TimeoutSec 60
+        Write-Host "Waiting for installers to finish (up to 120s) ..." -ForegroundColor Cyan
+        $t = Wait-ForContestTools -RelPath $RelPath -TimeoutSec 120
     }
 
     $still = @()
@@ -512,30 +558,18 @@ function Ensure-ContestTools {
     if ($still.Count -gt 0) {
         Write-Host "[!] Still missing after install attempt:" -ForegroundColor Red
         foreach ($m in $still) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
-        Write-Host "Retrying portable downloads (kubectl/helm) and AWS MSI / Git silent where possible ..." -ForegroundColor Cyan
+        Write-Host "Retrying AWS MSI / Git silent / portable tools ..." -ForegroundColor Cyan
         if (-not $t.Aws) {
-            try {
-                $ok = $false
-                try { $ok = Install-WithWinget -Id "Amazon.AWSCLI" -Label "AWS CLI" } catch { $ok = $false }
-                if (-not $ok) { $null = Install-AwsCliMsi }
-            }
-            catch { Write-Host ("AWS retry failed: {0}" -f $_) -ForegroundColor Red }
+            try { $null = Install-AwsCliMsi } catch { Write-Host ("AWS MSI retry failed: {0}" -f $_) -ForegroundColor Red }
         }
         if ($t.NeedBash -and -not $t.Bash) {
-            try {
-                $ok = $false
-                try { $ok = Install-WithWinget -Id "Git.Git" -Label "Git for Windows" } catch { $ok = $false }
-                if (-not $ok) { $null = Install-GitSilent }
-            }
-            catch { Write-Host ("Git retry failed: {0}" -f $_) -ForegroundColor Red }
+            try { $null = Install-GitSilent } catch { Write-Host ("Git silent retry failed: {0}" -f $_) -ForegroundColor Red }
         }
         if ($t.NeedKubectl -and -not $t.Kubectl) {
-            try { $null = Install-KubectlPortable }
-            catch { Write-Host ("kubectl retry failed: {0}" -f $_) -ForegroundColor Red }
+            try { $null = Install-KubectlPortable } catch { Write-Host ("kubectl retry failed: {0}" -f $_) -ForegroundColor Red }
         }
         if ($t.NeedHelm -and -not $t.Helm) {
-            try { $null = Install-HelmPortable }
-            catch { Write-Host ("Helm retry failed: {0}" -f $_) -ForegroundColor Red }
+            try { $null = Install-HelmPortable } catch { Write-Host ("Helm retry failed: {0}" -f $_) -ForegroundColor Red }
         }
         Refresh-ProcessPath
         $t = Resolve-ContestTools -RelPath $RelPath
@@ -554,8 +588,9 @@ function Ensure-ContestTools {
         Write-Host "[!] Still missing after install attempt:" -ForegroundColor Red
         foreach ($m in $still) { Write-Host ("    - {0}" -f $m) -ForegroundColor Yellow }
         Write-Host "Manual fix (Admin PowerShell):" -ForegroundColor Yellow
-        Write-Host "  winget install -e --id Amazon.AWSCLI Git.Git Helm.Helm --accept-package-agreements" -ForegroundColor Yellow
-        Write-Host "Or open a NEW PowerShell after MSI/winget installs, then re-run .\start.cmd" -ForegroundColor Yellow
+        Write-Host "  msiexec /i https://awscli.amazonaws.com/AWSCLIV2.msi /qn" -ForegroundColor Yellow
+        Write-Host "  Or: winget install -e --id Amazon.AWSCLI Git.Git Helm.Helm --accept-package-agreements" -ForegroundColor Yellow
+        Write-Host "Recommended: git clone (not ZIP) then git pull origin master" -ForegroundColor Yellow
         throw "Contest tools missing"
     }
 
