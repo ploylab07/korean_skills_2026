@@ -1,7 +1,8 @@
 locals {
   account_id   = data.aws_caller_identity.current.account_id
   cluster_name = "wskorea26-cluster"
-  bucket_name  = "wskorea26-concert-bucket-${var.bibun}"
+  # S3 names are global; append account_id so bibun=001 is not blocked by other accounts.
+  bucket_name  = "wskorea26-concert-bucket-${var.bibun}-${data.aws_caller_identity.current.account_id}"
 
   # 문제 Reference01: pub/priv subnet-c → 2c, subnet-d → 2d
   az_c = "ap-northeast-2c"

@@ -4,7 +4,7 @@ variable "region" {
 }
 
 variable "bibun" {
-  description = "비번호 (S3 버킷·Grafana 계정)"
+  description = "비번호 (Grafana 계정 skills-<bibun>-admin; S3는 bucket-<bibun>-<account_id>)"
   type        = string
   default     = "001"
 }
