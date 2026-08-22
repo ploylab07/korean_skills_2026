@@ -1,0 +1,445 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wskorea26 day1/002 edge (Lambda, ALB, CloudFront)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '001'
+  VpcId:
+    Type: String
+  PubSubnetC:
+    Type: String
+  PubSubnetD:
+    Type: String
+  BookAlbSecurityGroupId:
+    Type: String
+  GrafanaAlbSecurityGroupId:
+    Type: String
+  S3BucketName:
+    Type: String
+  S3BucketArn:
+    Type: String
+  S3BucketRegionalDomainName:
+    Type: String
+  S3KmsKeyArn:
+    Type: String
+  S3KmsKeyId:
+    Type: String
+  DynamoDbTableName:
+    Type: String
+  DynamoDbTableArn:
+    Type: String
+  DynamoDbKmsKeyArn:
+    Type: String
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wskorea26-book-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  LambdaDynamoDbPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ddb-access
+      Roles:
+        - !Ref LambdaExecutionRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:Query
+              - dynamodb:GetItem
+              - dynamodb:Scan
+            Resource:
+              - !Ref DynamoDbTableArn
+              - !Sub '${DynamoDbTableArn}/index/*'
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+            Resource: !Ref DynamoDbKmsKeyArn
+
+  BookLambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LambdaDynamoDbPolicy
+    Properties:
+      FunctionName: wskorea26-book-lambda
+      Runtime: python3.14
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref DynamoDbTableName
+          INDEX_NAME: concert_name-created_at-index
+      Tags:
+        - Key: Name
+          Value: wskorea26-book-lambda
+      Code:
+        ZipFile: |
+          import json, os
+          from collections import OrderedDict
+          from datetime import datetime, timezone, timedelta
+          import boto3
+          from boto3.dynamodb.conditions import Key
+          from decimal import Decimal
+          ITEM_FIELDS = ("client_id", "username", "email", "concert_name", "booking_id", "created_at")
+          TABLE_NAME = os.environ["TABLE_NAME"]
+          INDEX_NAME = os.environ.get("INDEX_NAME", "concert_name-created_at-index")
+          dynamodb = boto3.resource("dynamodb")
+          table = dynamodb.Table(TABLE_NAME)
+          KST = timezone(timedelta(hours=9))
+          class DecimalEncoder(json.JSONEncoder):
+              def default(self, o):
+                  if isinstance(o, Decimal):
+                      return int(o) if o % 1 == 0 else float(o)
+                  return super().default(o)
+          def _response(status, body):
+              return {"statusCode": status, "statusDescription": f"{status} {'OK' if status == 200 else 'Bad Request' if status == 400 else 'Error'}", "isBase64Encoded": False, "headers": {"Content-Type": "application/json"}, "body": json.dumps(body, ensure_ascii=False, cls=DecimalEncoder)}
+          def to_kst(value):
+              if not value: return value
+              try:
+                  s = value.replace("Z", "+00:00")
+                  dt = datetime.fromisoformat(s)
+                  if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
+                  return dt.astimezone(KST).isoformat()
+              except Exception:
+                  return value
+          def lambda_handler(event, context):
+              params = event.get("queryStringParameters") or {}
+              concert_name = params.get("concert_name")
+              if not concert_name:
+                  return _response(400, {"message": "concert_name is required"})
+              result = table.query(IndexName=INDEX_NAME, KeyConditionExpression=Key("concert_name").eq(concert_name), ScanIndexForward=False)
+              items = []
+              for item in result.get("Items", []):
+                  ordered = OrderedDict()
+                  for field in ITEM_FIELDS:
+                      if field not in item: continue
+                      value = item[field]
+                      if field == "created_at": value = to_kst(value)
+                      ordered[field] = value
+                  items.append(ordered)
+              return _response(200, items)
+
+  BookLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: wskorea26-book-alb
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref BookAlbSecurityGroupId
+      Subnets:
+        - !Ref PubSubnetC
+        - !Ref PubSubnetD
+      Tags:
+        - Key: Name
+          Value: wskorea26-book-alb
+
+  BookTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: wskorea26-book-tg
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckPort: '8080'
+      Matcher:
+        HttpCode: '200'
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      HealthCheckIntervalSeconds: 30
+      Tags:
+        - Key: Name
+          Value: wskorea26-book-tg
+
+  LambdaTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LambdaInvokePermission
+    Properties:
+      Name: wskorea26-lambda-tg
+      TargetType: lambda
+      Tags:
+        - Key: Name
+          Value: wskorea26-lambda-tg
+      Targets:
+        - Id: !GetAtt BookLambdaFunction.Arn
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BookLambdaFunction
+      Principal: elasticloadbalancing.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/wskorea26-lambda-tg/*'
+
+  BookListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref BookLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: Forbidden
+            StatusCode: '403'
+
+  BookListenerRulePost:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref BookListener
+      Priority: 10
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: X-Origin-Verify
+            Values:
+              - wskorea26-cf
+        - Field: http-request-method
+          HttpRequestMethodConfig:
+            Values:
+              - POST
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - /book*
+              - /v1/book*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref BookTargetGroup
+
+  BookListenerRuleGet:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref BookListener
+      Priority: 20
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: X-Origin-Verify
+            Values:
+              - wskorea26-cf
+        - Field: http-request-method
+          HttpRequestMethodConfig:
+            Values:
+              - GET
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - /reserv-query*
+              - /book*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref LambdaTargetGroup
+
+  GrafanaLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: wskorea26-grafana-alb
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref GrafanaAlbSecurityGroupId
+      Subnets:
+        - !Ref PubSubnetC
+        - !Ref PubSubnetD
+      Tags:
+        - Key: Name
+          Value: wskorea26-grafana-alb
+
+  GrafanaTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: wskorea26-grafana-tg
+      Port: 3000
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /api/health
+      Matcher:
+        HttpCode: '200'
+      Tags:
+        - Key: Name
+          Value: wskorea26-grafana-tg
+
+  GrafanaListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref GrafanaLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GrafanaTargetGroup
+
+  S3OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: wskorea26-s3-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  BookRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: wskorea26-book-rewrite
+      AutoPublish: true
+      FunctionConfig:
+        Comment: rewrite POST /book
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          var method = request.method;
+          if (method === 'POST' && (uri === '/book' || uri.indexOf('/book?') === 0 || uri === '/book/')) {
+            request.uri = '/v1/book';
+          }
+          return request;
+        }
+
+  ConcertDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: wskorea26-concert-cf
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_All
+        HttpVersion: http2
+        IPV6Enabled: true
+        Origins:
+          - Id: wskorea26-s3-origin
+            DomainName: !Ref S3BucketRegionalDomainName
+            OriginPath: /web/main
+            OriginAccessControlId: !GetAtt S3OriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginCustomHeaders:
+              - HeaderName: wskorea26-s3-access
+                HeaderValue: 'true'
+          - Id: wskorea26-alb-origin
+            DomainName: !GetAtt BookLoadBalancer.DNSName
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
+              OriginSSLProtocols:
+                - TLSv1.2
+            OriginCustomHeaders:
+              - HeaderName: X-Origin-Verify
+                HeaderValue: wskorea26-cf
+        DefaultCacheBehavior:
+          TargetOriginId: wskorea26-s3-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CacheBehaviors:
+          - PathPattern: /book*
+            TargetOriginId: wskorea26-alb-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt BookRewriteFunction.FunctionARN
+          - PathPattern: /reserv-query*
+            TargetOriginId: wskorea26-alb-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+          MinimumProtocolVersion: TLSv1.2_2021
+      Tags:
+        - Key: Name
+          Value: wskorea26-concert-cf
+
+  ConcertBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3BucketName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${S3BucketArn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${ConcertDistribution}'
+
+Outputs:
+  CloudFrontDistributionId:
+    Value: !Ref ConcertDistribution
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontDistributionId'
+  CloudFrontDomainName:
+    Value: !GetAtt ConcertDistribution.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontDomainName'
+  BookAlbDnsName:
+    Value: !GetAtt BookLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-BookAlbDnsName'
+  GrafanaAlbDnsName:
+    Value: !GetAtt GrafanaLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-GrafanaAlbDnsName'
+  LambdaFunctionArn:
+    Value: !GetAtt BookLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunctionArn'

@@ -1,0 +1,297 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wskorea26 day1/002 network (VPC, subnets, NAT, route tables, security groups)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '001'
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.16.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: wskorea26-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: book-igw
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PubSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 172.16.1.0/24
+      AvailabilityZone: !Sub '${AWS::Region}c'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: wskorea26-pub-subnet-c
+
+  PubSubnetD:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 172.16.2.0/24
+      AvailabilityZone: !Sub '${AWS::Region}d'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: wskorea26-pub-subnet-d
+
+  PrivSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 172.16.201.0/24
+      AvailabilityZone: !Sub '${AWS::Region}c'
+      Tags:
+        - Key: Name
+          Value: wskorea26-priv-subnet-c
+
+  PrivSubnetD:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 172.16.202.0/24
+      AvailabilityZone: !Sub '${AWS::Region}d'
+      Tags:
+        - Key: Name
+          Value: wskorea26-priv-subnet-d
+
+  NatEipC:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: book-ngw-c-eip
+
+  NatEipD:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: book-ngw-d-eip
+
+  NatGatewayC:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipC.AllocationId
+      SubnetId: !Ref PubSubnetC
+      Tags:
+        - Key: Name
+          Value: book-ngw-c
+
+  NatGatewayD:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipD.AllocationId
+      SubnetId: !Ref PubSubnetD
+      Tags:
+        - Key: Name
+          Value: book-ngw-d
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: wskorea26-public-rtb
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PubSubnetCAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetC
+      RouteTableId: !Ref PublicRouteTable
+
+  PubSubnetDAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetD
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTableC:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: wskorea26-private-rtb-c
+
+  PrivateRouteC:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableC
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayC
+
+  PrivSubnetCAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivSubnetC
+      RouteTableId: !Ref PrivateRouteTableC
+
+  PrivateRouteTableD:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: wskorea26-private-rtb-d
+
+  PrivateRouteD:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableD
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayD
+
+  PrivSubnetDAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivSubnetD
+      RouteTableId: !Ref PrivateRouteTableD
+
+  EnvironmentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: wskorea26-vpc-environment-sg
+      GroupDescription: EKS/CloudShell access
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: wskorea26-vpc-environment-sg
+
+  EksClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: wskorea26-eks-cluster-sg
+      GroupDescription: EKS cluster SG
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref EnvironmentSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: wskorea26-eks-cluster-sg
+
+  BookAlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: wskorea26-book-alb-sg
+      GroupDescription: Book ALB SG
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: wskorea26-book-alb-sg
+
+  GrafanaAlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: wskorea26-grafana-alb-sg
+      GroupDescription: Grafana ALB
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: wskorea26-grafana-alb-sg
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcId'
+  VpcCidr:
+    Value: !GetAtt Vpc.CidrBlock
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcCidr'
+  PubSubnetC:
+    Value: !Ref PubSubnetC
+    Export:
+      Name: !Sub '${AWS::StackName}-PubSubnetC'
+  PubSubnetD:
+    Value: !Ref PubSubnetD
+    Export:
+      Name: !Sub '${AWS::StackName}-PubSubnetD'
+  PrivSubnetC:
+    Value: !Ref PrivSubnetC
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivSubnetC'
+  PrivSubnetD:
+    Value: !Ref PrivSubnetD
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivSubnetD'
+  EnvironmentSecurityGroupId:
+    Value: !Ref EnvironmentSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-EnvironmentSecurityGroupId'
+  EksClusterSecurityGroupId:
+    Value: !Ref EksClusterSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-EksClusterSecurityGroupId'
+  BookAlbSecurityGroupId:
+    Value: !Ref BookAlbSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-BookAlbSecurityGroupId'
+  GrafanaAlbSecurityGroupId:
+    Value: !Ref GrafanaAlbSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-GrafanaAlbSecurityGroupId'

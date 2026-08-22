@@ -1,0 +1,269 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wskorea26 day1/002 EKS cluster and node groups
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '001'
+  VpcId:
+    Type: String
+  VpcCidr:
+    Type: String
+  PrivSubnetC:
+    Type: String
+  PrivSubnetD:
+    Type: String
+  EksClusterSecurityGroupId:
+    Type: String
+  BookAlbSecurityGroupId:
+    Type: String
+  GrafanaAlbSecurityGroupId:
+    Type: String
+  EksKmsKeyArn:
+    Type: String
+  DynamoDbTableArn:
+    Type: String
+  DynamoDbKmsKeyArn:
+    Type: String
+
+Resources:
+  EksClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wskorea26-eks-cluster-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: eks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSVPCResourceController
+
+  EksNodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wskorea26-eks-node-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+
+  EksNodeDynamoDbPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ddb-access
+      Roles:
+        - !Ref EksNodeRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:PutItem
+              - dynamodb:GetItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:UpdateItem
+            Resource:
+              - !Ref DynamoDbTableArn
+              - !Sub '${DynamoDbTableArn}/index/*'
+          - Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: !Ref DynamoDbKmsKeyArn
+
+  AddonLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub 'wskorea26-addon-lt-${AWS::StackName}'
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 2
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: wskorea26-addon-node
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: wskorea26-addon-node
+
+  AppLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub 'wskorea26-app-lt-${AWS::StackName}'
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 2
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: wskorea26-app-node
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: wskorea26-app-node
+
+  EksCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: wskorea26-cluster
+      Version: '1.35'
+      RoleArn: !GetAtt EksClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds:
+          - !Ref PrivSubnetC
+          - !Ref PrivSubnetD
+        SecurityGroupIds:
+          - !Ref EksClusterSecurityGroupId
+        EndpointPrivateAccess: true
+        EndpointPublicAccess: true
+        PublicAccessCidrs:
+          - 0.0.0.0/0
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - Type: api
+            - Type: audit
+            - Type: authenticator
+            - Type: controllerManager
+            - Type: scheduler
+      EncryptionConfig:
+        - Provider:
+            KeyArn: !Ref EksKmsKeyArn
+          Resources:
+            - secrets
+      Tags:
+        - Key: Name
+          Value: wskorea26-cluster
+
+  ClusterFromBookAlbIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref BookAlbSecurityGroupId
+
+  ClusterFromGrafanaAlbIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      SourceSecurityGroupId: !Ref GrafanaAlbSecurityGroupId
+
+  ClusterVpc8080Ingress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      CidrIp: !Ref VpcCidr
+
+  ClusterVpc3000Ingress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt EksCluster.ClusterSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      CidrIp: !Ref VpcCidr
+
+  AddonNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    DependsOn:
+      - EksNodeDynamoDbPolicy
+    Properties:
+      ClusterName: !Ref EksCluster
+      NodegroupName: wskorea26-addon-ng
+      NodeRole: !GetAtt EksNodeRole.Arn
+      Subnets:
+        - !Ref PrivSubnetC
+        - !Ref PrivSubnetD
+      InstanceTypes:
+        - t3.medium
+      ScalingConfig:
+        DesiredSize: 2
+        MinSize: 2
+        MaxSize: 4
+      Labels:
+        node-type: addon
+      LaunchTemplate:
+        Id: !Ref AddonLaunchTemplate
+        Version: !GetAtt AddonLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: wskorea26-addon-node
+
+  AppNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    DependsOn:
+      - EksNodeDynamoDbPolicy
+    Properties:
+      ClusterName: !Ref EksCluster
+      NodegroupName: wskorea26-app-ng
+      NodeRole: !GetAtt EksNodeRole.Arn
+      Subnets:
+        - !Ref PrivSubnetC
+        - !Ref PrivSubnetD
+      InstanceTypes:
+        - t3.medium
+      ScalingConfig:
+        DesiredSize: 2
+        MinSize: 2
+        MaxSize: 4
+      Labels:
+        node-type: app
+      Taints:
+        - Key: node-type
+          Value: app
+          Effect: NO_SCHEDULE
+      LaunchTemplate:
+        Id: !Ref AppLaunchTemplate
+        Version: !GetAtt AppLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: wskorea26-app-node
+
+Outputs:
+  ClusterName:
+    Value: !Ref EksCluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterName'
+  ClusterArn:
+    Value: !GetAtt EksCluster.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterArn'
+  ClusterEndpoint:
+    Value: !GetAtt EksCluster.Endpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterEndpoint'
+  ClusterSecurityGroupId:
+    Value: !GetAtt EksCluster.ClusterSecurityGroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterSecurityGroupId'

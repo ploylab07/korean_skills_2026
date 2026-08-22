@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wskorea26 day1/002 master nested stack (RC 2026 Korean Skills cloud computing task 1)
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '001'
+    Description: 비번호 (S3 bucket suffix)
+  GrafanaAdminPassword:
+    Type: String
+    Default: '$korea26!!'
+    NoEcho: true
+    Description: Grafana admin password (kubectl/helm post-deploy)
+
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/network.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/storage.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+
+  EksStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - NetworkStack
+      - StorageStack
+    Properties:
+      TemplateURL: templates/eks.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        VpcCidr: !GetAtt NetworkStack.Outputs.VpcCidr
+        PrivSubnetC: !GetAtt NetworkStack.Outputs.PrivSubnetC
+        PrivSubnetD: !GetAtt NetworkStack.Outputs.PrivSubnetD
+        EksClusterSecurityGroupId: !GetAtt NetworkStack.Outputs.EksClusterSecurityGroupId
+        BookAlbSecurityGroupId: !GetAtt NetworkStack.Outputs.BookAlbSecurityGroupId
+        GrafanaAlbSecurityGroupId: !GetAtt NetworkStack.Outputs.GrafanaAlbSecurityGroupId
+        EksKmsKeyArn: !GetAtt StorageStack.Outputs.EksKmsKeyArn
+        DynamoDbTableArn: !GetAtt StorageStack.Outputs.DynamoDbTableArn
+        DynamoDbKmsKeyArn: !GetAtt StorageStack.Outputs.DynamoDbKmsKeyArn
+
+  EdgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - NetworkStack
+      - StorageStack
+    Properties:
+      TemplateURL: templates/edge.yaml
+      Parameters:
+        Bibun: !Ref Bibun
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PubSubnetC: !GetAtt NetworkStack.Outputs.PubSubnetC
+        PubSubnetD: !GetAtt NetworkStack.Outputs.PubSubnetD
+        BookAlbSecurityGroupId: !GetAtt NetworkStack.Outputs.BookAlbSecurityGroupId
+        GrafanaAlbSecurityGroupId: !GetAtt NetworkStack.Outputs.GrafanaAlbSecurityGroupId
+        S3BucketName: !GetAtt StorageStack.Outputs.S3BucketName
+        S3BucketArn: !GetAtt StorageStack.Outputs.S3BucketArn
+        S3BucketRegionalDomainName: !GetAtt StorageStack.Outputs.S3BucketRegionalDomainName
+        S3KmsKeyArn: !GetAtt StorageStack.Outputs.S3KmsKeyArn
+        S3KmsKeyId: !GetAtt StorageStack.Outputs.S3KmsKeyId
+        DynamoDbTableName: !GetAtt StorageStack.Outputs.DynamoDbTableName
+        DynamoDbTableArn: !GetAtt StorageStack.Outputs.DynamoDbTableArn
+        DynamoDbKmsKeyArn: !GetAtt StorageStack.Outputs.DynamoDbKmsKeyArn
+
+Outputs:
+  Bibun:
+    Value: !Ref Bibun
+  GrafanaAdminUser:
+    Value: !Sub 'skills-${Bibun}-admin'
+  VpcId:
+    Value: !GetAtt NetworkStack.Outputs.VpcId
+  S3BucketName:
+    Value: !GetAtt StorageStack.Outputs.S3BucketName
+  S3KmsKeyArn:
+    Value: !GetAtt StorageStack.Outputs.S3KmsKeyArn
+  EcrRepositoryUri:
+    Value: !GetAtt StorageStack.Outputs.EcrRepositoryUri
+  ClusterName:
+    Value: !GetAtt EksStack.Outputs.ClusterName
+  ClusterEndpoint:
+    Value: !GetAtt EksStack.Outputs.ClusterEndpoint
+  CloudFrontDistributionId:
+    Value: !GetAtt EdgeStack.Outputs.CloudFrontDistributionId
+  CloudFrontDomainName:
+    Value: !GetAtt EdgeStack.Outputs.CloudFrontDomainName
+  BookAlbDnsName:
+    Value: !GetAtt EdgeStack.Outputs.BookAlbDnsName
+  GrafanaAlbDnsName:
+    Value: !GetAtt EdgeStack.Outputs.GrafanaAlbDnsName

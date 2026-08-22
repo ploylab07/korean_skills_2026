@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: wskorea26 day1/002 storage (KMS, S3, ECR, DynamoDB)
+
+Metadata:
+  PostDeploy:
+    Description: |
+      배포 후 S3 객체는 CFN으로 생성하지 않음.
+      web/main/index.html 과 web/main/main.jpeg 를 SSE-KMS(s3 key)로 업로드하세요.
+
+Parameters:
+  Bibun:
+    Type: String
+    Default: '001'
+
+Resources:
+  S3KmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: S3 CMK
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRoot
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/*'
+
+  S3KmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wskorea26-s3-key
+      TargetKeyId: !Ref S3KmsKey
+
+  DynamoDbKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: DynamoDB CMK
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRoot
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+
+  DynamoDbKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wskorea26-dynamodb-key
+      TargetKeyId: !Ref DynamoDbKmsKey
+
+  EksKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: EKS secrets CMK
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRoot
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+
+  EksKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wskorea26-eks-key
+      TargetKeyId: !Ref EksKmsKey
+
+  EcrKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: ECR CMK
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRoot
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+
+  EcrKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wskorea26-ecr-key
+      TargetKeyId: !Ref EcrKmsKey
+
+  ConcertBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'wskorea26-concert-bucket-${Bibun}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt S3KmsKey.Arn
+            BucketKeyEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'wskorea26-concert-bucket-${Bibun}'
+
+  BookEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: wskorea26-book-repo
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: KMS
+        KmsKey: !GetAtt EcrKmsKey.Arn
+      Tags:
+        - Key: Name
+          Value: wskorea26-book-repo
+
+  DataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: wskorea26-data-table
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      AttributeDefinitions:
+        - AttributeName: client_id
+          AttributeType: S
+        - AttributeName: concert_name
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: client_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: concert_name-created_at-index
+          KeySchema:
+            - AttributeName: concert_name
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt DynamoDbKmsKey.Arn
+      Tags:
+        - Key: Name
+          Value: wskorea26-data-table
+
+Outputs:
+  S3BucketName:
+    Value: !Ref ConcertBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketName'
+  S3BucketArn:
+    Value: !GetAtt ConcertBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketArn'
+  S3BucketRegionalDomainName:
+    Value: !GetAtt ConcertBucket.RegionalDomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketRegionalDomainName'
+  S3KmsKeyArn:
+    Value: !GetAtt S3KmsKey.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-S3KmsKeyArn'
+  S3KmsKeyId:
+    Value: !Ref S3KmsKey
+    Export:
+      Name: !Sub '${AWS::StackName}-S3KmsKeyId'
+  DynamoDbKmsKeyArn:
+    Value: !GetAtt DynamoDbKmsKey.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DynamoDbKmsKeyArn'
+  EksKmsKeyArn:
+    Value: !GetAtt EksKmsKey.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EksKmsKeyArn'
+  EcrKmsKeyArn:
+    Value: !GetAtt EcrKmsKey.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EcrKmsKeyArn'
+  DynamoDbTableName:
+    Value: !Ref DataTable
+    Export:
+      Name: !Sub '${AWS::StackName}-DynamoDbTableName'
+  DynamoDbTableArn:
+    Value: !GetAtt DataTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DynamoDbTableArn'
+  EcrRepositoryUri:
+    Value: !GetAtt BookEcrRepository.RepositoryUri
+    Export:
+      Name: !Sub '${AWS::StackName}-EcrRepositoryUri'
