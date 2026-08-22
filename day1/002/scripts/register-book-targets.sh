@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-2}"
+
+# Git Bash on Windows: build/.bin/kubectl may be a Linux stub — prefer KUBECTL or kubectl.exe
+if [[ -n "${KUBECTL:-}" ]]; then
+  kubectl() { "$KUBECTL" "$@"; }
+elif command -v kubectl.exe >/dev/null 2>&1; then
+  kubectl() { kubectl.exe "$@"; }
+fi
+
 CLUSTER="${CLUSTER_NAME:-wskorea26-cluster}"
 aws eks update-kubeconfig --region "$AWS_DEFAULT_REGION" --name "$CLUSTER" --alias wskorea26 --kubeconfig "${KUBECONFIG:-$HOME/.kube/wskorea26.yaml}" >/dev/null
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/wskorea26.yaml}"

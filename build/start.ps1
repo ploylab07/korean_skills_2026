@@ -288,15 +288,23 @@ function Test-TfStateHas([string]$AssignPath, [string]$Address) {
 
 function Invoke-TfImportQuiet {
     param([string]$AssignPath, [string]$Address, [string]$Id)
-    if (-not $Id) { return }
+    if (-not $Id) {
+        Write-Host ("  skip import {0} (not found in AWS)" -f $Address) -ForegroundColor DarkYellow
+        return
+    }
     if (Test-TfStateHas -AssignPath $AssignPath -Address $Address) { return }
-    Write-Host ("  import {0}" -f $Address) -ForegroundColor Cyan
-    $null = Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("import", "-input=false", $Address, $Id)
+    Write-Host ("  import {0} <= {1}" -f $Address, $Id) -ForegroundColor Cyan
+    $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("import", "-input=false", $Address, $Id))
+    if ($code -ne 0) {
+        Write-Warn ("import failed: {0}" -f $Address)
+    }
 }
 
 function Import-Day1002Orphans([string]$AssignPath) {
     Write-Host ">>> Adopt leftover AWS names into terraform state (avoids 409 AlreadyExists)" -ForegroundColor Cyan
     . (Join-Path $BuildDir "cleanup-wskorea26.ps1")
+    $bucket = Get-AwsText s3api list-buckets --query "Buckets[?starts_with(Name, 'wskorea26-concert-bucket-')].Name | [0]" --output text
+    Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_s3_bucket.web" -Id $bucket
     Invoke-TfImportQuiet -AssignPath $AssignPath -Address "aws_cloudfront_function.rewrite" -Id "wskorea26-book-rewrite"
     $oac = Get-AwsText cloudfront list-origin-access-controls --query "OriginAccessControlList.Items[?Name=='wskorea26-s3-oac'].Id" --output text
     $oacId = (@($oac -split '\s+') | Where-Object { $_ }) | Select-Object -First 1

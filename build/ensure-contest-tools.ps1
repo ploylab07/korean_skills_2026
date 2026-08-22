@@ -81,12 +81,38 @@ function Add-PathDir([string]$Dir) {
     $env:PATH = "$Dir;" + $env:PATH
 }
 
+function Test-WindowsPeExe {
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $false }
+    try {
+        $b = Get-Content -LiteralPath $Path -Encoding Byte -TotalCount 2
+        return ($b.Count -ge 2 -and $b[0] -eq 0x4D -and $b[1] -eq 0x5A)
+    }
+    catch { return $false }
+}
+
+function Remove-StaleKubectlStub {
+    $stub = Join-Path $script:ContestToolsBinDir "kubectl"
+    if (Test-Path -LiteralPath $stub) {
+        if (-not (Test-WindowsPeExe -Path $stub)) {
+            Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue
+            Write-Host "[OK] removed non-Windows build\.bin\kubectl stub" -ForegroundColor Yellow
+        }
+    }
+    $dest = Join-Path $script:ContestToolsBinDir "kubectl.exe"
+    if ((Test-Path -LiteralPath $dest) -and -not (Test-WindowsPeExe -Path $dest)) {
+        Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+        Write-Host "[OK] removed invalid build\.bin\kubectl.exe" -ForegroundColor Yellow
+    }
+}
+
 function Publish-TerraformBinDir {
     param(
         [string]$AwsPath,
         [string]$KubectlPath
     )
     New-Item -ItemType Directory -Force -Path $script:ContestToolsBinDir | Out-Null
+    Remove-StaleKubectlStub
 
     # AWS CLI v2 is not a standalone exe. Copying/hardlinking aws.exe into build\.bin
     # makes kubernetes/helm exec fail with exit 4294967295 (-1).
@@ -101,6 +127,7 @@ function Publish-TerraformBinDir {
 
     if ($KubectlPath -and (Test-Path -LiteralPath $KubectlPath)) {
         $dest = Join-Path $script:ContestToolsBinDir "kubectl.exe"
+        Remove-StaleKubectlStub
         if (-not (Test-Path -LiteralPath $dest)) {
             try {
                 New-Item -ItemType HardLink -Path $dest -Target $KubectlPath -Force -ErrorAction Stop | Out-Null
@@ -109,6 +136,11 @@ function Publish-TerraformBinDir {
                 Copy-Item -LiteralPath $KubectlPath -Destination $dest -Force
             }
         }
+        if (-not (Test-WindowsPeExe -Path $dest)) {
+            Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+            throw "build\.bin\kubectl.exe is not a valid Windows executable"
+        }
+        $env:KUBECTL = $dest
     }
     Add-PathDir $script:ContestToolsBinDir
     # AWS CLI dir must win over build\.bin (no stub aws.exe there)
@@ -186,13 +218,20 @@ function Test-NeedsDocker([string]$RelPath) {
 
 function Install-KubectlPortable {
     New-Item -ItemType Directory -Force -Path $script:ContestToolsBinDir | Out-Null
+    Remove-StaleKubectlStub
     $dest = Join-Path $script:ContestToolsBinDir "kubectl.exe"
-    if (Test-Path -LiteralPath $dest) { return $dest }
+    if ((Test-Path -LiteralPath $dest) -and (Test-WindowsPeExe -Path $dest)) { return $dest }
+    if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Force }
     $verUrl = "https://dl.k8s.io/release/stable.txt"
     Write-Host "Downloading kubectl to build\.bin ..." -ForegroundColor Yellow
     $ver = Get-WebText -Uri $verUrl
     $url = "https://dl.k8s.io/release/$ver/bin/windows/amd64/kubectl.exe"
     Invoke-WebFile -Uri $url -OutFile $dest
+    if (-not (Test-WindowsPeExe -Path $dest)) {
+        Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+        throw "downloaded kubectl.exe is not a valid Windows PE file"
+    }
+    $env:KUBECTL = $dest
     return $dest
 }
 

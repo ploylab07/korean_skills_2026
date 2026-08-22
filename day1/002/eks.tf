@@ -211,6 +211,7 @@ resource "null_resource" "pin_kube_system_to_addon" {
     }
     command = <<-EOT
       set -euo pipefail
+      if [[ -n "$${KUBECTL:-}" ]]; then kubectl() { "$$KUBECTL" "$@"; }; elif command -v kubectl.exe >/dev/null 2>&1; then kubectl() { kubectl.exe "$@"; }; fi
       aws eks update-kubeconfig --region "$AWS_DEFAULT_REGION" --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG" >/dev/null
       export KUBECONFIG
       # CoreDNS → addon only
