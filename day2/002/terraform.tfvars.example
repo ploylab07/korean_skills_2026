@@ -1,3 +1,4 @@
-# Copy to terraform.tfvars and set YOUR contest number.
+# Option A: copy to terraform.tfvars and set YOUR contest number.
+# Option B: set PARTICIPANT_ID=... in repo-root .env (preferred across machines).
 # S3 names are globally unique — do NOT use 001 (already taken).
 participant_id = "588"

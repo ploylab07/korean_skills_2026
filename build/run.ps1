@@ -108,6 +108,11 @@ switch ($Action) {
         $assignPath = Resolve-AssignmentPath $AssignmentFolder
         Write-Step "Terraform $Action in $AssignmentFolder"
 
+        if ($AssignmentFolder -match '(?i)day2[/\\]002' -and $Action -in @("plan", "apply", "destroy", "validate")) {
+            . (Join-Path $BuildDir "cleanup-wsc2026-day2.ps1")
+            Ensure-Day2002Tfvars -AssignPath $assignPath
+        }
+
         switch ($Action) {
             "init" {
                 & $TfCmd -chdir="$assignPath" init -input=false

@@ -20,4 +20,9 @@
         $value = $line.Substring($idx + 1).Trim().Trim('"').Trim("'")
         Set-Item -Path "env:$name" -Value $value
     }
+
+    # day2/002 (and similar) — terraform.tfvars is gitignored; use .env instead.
+    if ($env:PARTICIPANT_ID -and -not $env:TF_VAR_participant_id) {
+        $env:TF_VAR_participant_id = $env:PARTICIPANT_ID
+    }
 }

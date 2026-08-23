@@ -101,4 +101,42 @@ if [[ ! -f "$REPO_ROOT/.env" ]] && [[ "${1:-}" == "apply" || "${1:-}" == "plan" 
   echo "      Windows: .\\setup-aws.cmd  |  Mac/Linux: ./setup-aws" >&2
 fi
 
+# day2/002 needs participant_id via terraform.tfvars or .env PARTICIPANT_ID
+ensure_day2002_participant() {
+  local chdir="" arg next_is_chdir=0 need_id=0
+  for arg in "$@"; do
+    if [[ "$next_is_chdir" -eq 1 ]]; then
+      chdir="$arg"
+      next_is_chdir=0
+      continue
+    fi
+    case "$arg" in
+      -chdir=*) chdir="${arg#-chdir=}" ;;
+      -chdir) next_is_chdir=1 ;;
+      plan|apply|destroy) need_id=1 ;;
+    esac
+  done
+  [[ "$need_id" -eq 1 ]] || return 0
+  [[ -n "$chdir" ]] || return 0
+  local abs
+  abs="$(cd "$chdir" 2>/dev/null && pwd)" || return 0
+  case "$abs" in
+    */day2/002) ;;
+    *) return 0 ;;
+  esac
+  if [[ -f "$abs/terraform.tfvars" ]]; then
+    return 0
+  fi
+  if [[ -n "${TF_VAR_participant_id:-}" ]]; then
+    return 0
+  fi
+  echo "error: day2/002 needs participant_id" >&2
+  echo "  1) .env 에 PARTICIPANT_ID=본인비번호 추가 후 재실행, 또는" >&2
+  echo "  2) cp day2/002/terraform.tfvars.example day2/002/terraform.tfvars 후 수정" >&2
+  echo "  (001 은 S3 전역 충돌로 사용 불가)" >&2
+  exit 1
+}
+
+ensure_day2002_participant "$@"
+
 exec "$TF_BIN" "$@"

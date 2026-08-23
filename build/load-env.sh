@@ -14,4 +14,9 @@ load_repo_env() {
   # shellcheck disable=SC1090
   source "$env_file"
   set +a
+
+  # day2/002 (and similar) — terraform.tfvars is gitignored; use .env instead.
+  if [[ -n "${PARTICIPANT_ID:-}" && -z "${TF_VAR_participant_id:-}" ]]; then
+    export TF_VAR_participant_id="$PARTICIPANT_ID"
+  fi
 }

@@ -65,8 +65,21 @@ function Ensure-Day2002Tfvars {
 
     if (-not $bad) { return }
 
+    # Prefer PARTICIPANT_ID / TF_VAR_participant_id from .env (cross-machine, no prompt).
+    $fromEnv = $env:PARTICIPANT_ID
+    if (-not $fromEnv) { $fromEnv = $env:TF_VAR_participant_id }
+    if ($fromEnv -and $fromEnv -ne "001" -and $fromEnv -match '^[0-9A-Za-z-]{1,20}$') {
+        @(
+            "# Auto-created from .env PARTICIPANT_ID"
+            "participant_id = `"$fromEnv`""
+        ) | Set-Content -LiteralPath $tfvars -Encoding UTF8
+        Write-Host "[OK] Wrote $tfvars from .env PARTICIPANT_ID=$fromEnv" -ForegroundColor Green
+        return
+    }
+
     Write-Host ""
-    Write-Host "day2/002 needs terraform.tfvars with YOUR contest number." -ForegroundColor Yellow
+    Write-Host "day2/002 needs participant_id (S3 suffix)." -ForegroundColor Yellow
+    Write-Host "Set PARTICIPANT_ID in .env, or create terraform.tfvars (see terraform.tfvars.example)." -ForegroundColor Yellow
     Write-Host "Do NOT use 001 — S3 bucket names are globally unique and 001 is taken." -ForegroundColor Yellow
     while ($true) {
         $num = Read-Host "participant_id (your contest number)"
