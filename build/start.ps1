@@ -229,6 +229,10 @@ function Invoke-Destroy([string]$AssignPath, [string]$RelPath) {
         return $false
     }
     Invoke-TerraformRetry -AssignPath $AssignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 3
+    if ($RelPath -match '(?i)day2\\002') {
+        . (Join-Path $BuildDir "cleanup-wsc2026-day2.ps1")
+        Ensure-Day2002Tfvars -AssignPath $AssignPath
+    }
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("destroy", "-input=false", "-auto-approve"))
     if ($code -ne 0) {
         Write-Warn "terraform destroy failed (exit $code) - will still try AWS name-based wipe if day1/002"
