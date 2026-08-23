@@ -123,6 +123,15 @@ function Remove-Wsc2026Day2OrphanAws {
             $null = Invoke-AwsQuiet lambda delete-function --region $region --function-name $fn
         }
     }
+    foreach ($fn in @(
+            "wsc2026-ec2-stop-remediation", "wsc2026-ec2-terminate-alert",
+            "wsc2026-sg-remediation", "wsc2026-tag-alert"
+        )) {
+        if (Get-AwsText lambda get-function --region eu-west-1 --function-name $fn --query "Configuration.FunctionName" --output text) {
+            Write-Host "  delete Lambda $fn (eu-west-1)"
+            $null = Invoke-AwsQuiet lambda delete-function --region eu-west-1 --function-name $fn
+        }
+    }
     $sm = Get-AwsText stepfunctions list-state-machines --region ap-southeast-1 `
         --query "stateMachines[?name=='wsc2026-student-score-workflow'].stateMachineArn | [0]" --output text
     if ($sm) {
@@ -154,6 +163,46 @@ function Remove-Wsc2026Day2OrphanAws {
             Write-Host "  delete Kinesis wsc2026-order-stream"
             $null = Invoke-AwsQuiet kinesis delete-stream --region ap-northeast-2 --stream-name wsc2026-order-stream --enforce-consumer-deletion
         }
+    }
+    if (-not (& $inState "module.analytics.aws_kinesisanalyticsv2_application.flink")) {
+        $flinkName = Get-AwsText kinesisanalyticsv2 describe-application --region ap-northeast-2 `
+            --application-name wsc2026-analytics-flink --query "ApplicationDetail.ApplicationName" --output text
+        if ($flinkName) {
+            $flinkTs = Get-AwsText kinesisanalyticsv2 describe-application --region ap-northeast-2 `
+                --application-name wsc2026-analytics-flink --query "ApplicationDetail.CreateTimestamp" --output text
+            $flinkStatus = Get-AwsText kinesisanalyticsv2 describe-application --region ap-northeast-2 `
+                --application-name wsc2026-analytics-flink --query "ApplicationDetail.ApplicationStatus" --output text
+            if ($flinkStatus -eq "RUNNING") {
+                Write-Host "  stop Flink wsc2026-analytics-flink"
+                $null = Invoke-AwsQuiet kinesisanalyticsv2 stop-application --region ap-northeast-2 `
+                    --application-name wsc2026-analytics-flink --force
+                Start-Sleep -Seconds 30
+            }
+            Write-Host "  delete Flink wsc2026-analytics-flink"
+            $null = Invoke-AwsQuiet kinesisanalyticsv2 delete-application --region ap-northeast-2 `
+                --application-name wsc2026-analytics-flink --create-timestamp $flinkTs
+        }
+    }
+
+    # --- EventBridge rules (event module, eu-west-1) ---
+    foreach ($rule in @(
+            "wsc2026-ec2-stop-rule", "wsc2026-ec2-terminate-rule", "wsc2026-sg-change-rule",
+            "wsc2026-sg-ssh-rule", "wsc2026-required-tags-rule", "wsc2026-tag-alert-rule"
+        )) {
+        $targets = Get-AwsTokens events list-targets-by-rule --region eu-west-1 --rule $rule --query "Targets[].Id" --output text
+        if ($targets.Count -gt 0) {
+            $null = Invoke-AwsQuiet events remove-targets --region eu-west-1 --rule $rule --ids @($targets)
+        }
+        if (Get-AwsText events describe-rule --region eu-west-1 --name $rule --query "Name" --output text) {
+            Write-Host "  delete EventBridge rule $rule"
+            $null = Invoke-AwsQuiet events delete-rule --region eu-west-1 --name $rule
+        }
+    }
+    $eventTopic = Get-AwsText sns list-topics --region eu-west-1 `
+        --query "Topics[?contains(TopicArn,'wsc2026-event-alert')].TopicArn | [0]" --output text
+    if ($eventTopic) {
+        Write-Host "  delete SNS $eventTopic"
+        $null = Invoke-AwsQuiet sns delete-topic --region eu-west-1 --topic-arn $eventTopic
     }
 
     # --- DynamoDB ---
