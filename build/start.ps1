@@ -248,7 +248,14 @@ function Invoke-Destroy([string]$AssignPath, [string]$RelPath) {
     }
     else {
         Write-Host "Note: only resources in THIS folder terraform state were deleted." -ForegroundColor Yellow
-        Write-Host "If apply fails with AlreadyExists, clean leftover AWS resources then retry." -ForegroundColor Yellow
+        Write-Host "If apply fails with AlreadyExists, use mode [3] Destroy then Apply." -ForegroundColor Yellow
+        if ($RelPath -match '(?i)day2\\002') {
+            $wipe = Read-Host "Also delete orphan wsc2026 MSK config/cluster (recommended)? [Y/n]"
+            if ($wipe -notmatch '^[Nn]') {
+                . (Join-Path $BuildDir "cleanup-wsc2026-day2.ps1")
+                Remove-Wsc2026Day2OrphanAws -AssignPath $AssignPath
+            }
+        }
     }
     return $true
 }
@@ -438,6 +445,12 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
 
     Invoke-TerraformRetry -AssignPath $AssignPath -TfArgs @("init", "-input=false") -Label "terraform init" -MaxAttempts 3
 
+    if ($RelPath -match '(?i)day2\\002') {
+        . (Join-Path $BuildDir "cleanup-wsc2026-day2.ps1")
+        Ensure-Day2002Tfvars -AssignPath $AssignPath
+        Remove-Wsc2026Day2OrphanAws -AssignPath $AssignPath
+    }
+
     if ($RelPath -match '(?i)day1\\002') {
         Import-Day1002Orphans -AssignPath $AssignPath
     }
@@ -462,6 +475,11 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
                 Write-Host "Retrying apply (init skipped)..." -ForegroundColor Cyan
                 if ($RelPath -match '(?i)day1\\002') {
                     Import-Day1002Orphans -AssignPath $AssignPath
+                }
+                if ($RelPath -match '(?i)day2\\002') {
+                    . (Join-Path $BuildDir "cleanup-wsc2026-day2.ps1")
+                    Ensure-Day2002Tfvars -AssignPath $AssignPath
+                    Remove-Wsc2026Day2OrphanAws -AssignPath $AssignPath
                 }
                 $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve"))
                 if ($code -eq 0) {

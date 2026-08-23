@@ -1,1 +1,2 @@
+# Dependencies are vendored in this folder (kafka/) for Windows apply — no pip at apply time.
 kafka-python==2.2.15

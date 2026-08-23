@@ -273,7 +273,7 @@ resource "aws_iam_role_policy" "flink" {
 }
 
 resource "time_sleep" "flink_iam" {
-  depends_on      = [aws_iam_role_policy.flink, aws_glue_catalog_database.default]
+  depends_on      = [aws_iam_role_policy.flink]
   create_duration = "20s"
 }
 
@@ -386,11 +386,6 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-resource "aws_glue_catalog_database" "default" {
-  provider = aws
-  name = "default"
-}
-
 resource "aws_kinesisanalyticsv2_application" "flink" {
   provider               = aws
   name                   = "wsc2026-analytics-flink"
@@ -399,7 +394,6 @@ resource "aws_kinesisanalyticsv2_application" "flink" {
   service_execution_role = aws_iam_role.flink.arn
 
   depends_on = [
-    aws_glue_catalog_database.default,
     aws_iam_role_policy.flink,
     time_sleep.flink_iam
   ]

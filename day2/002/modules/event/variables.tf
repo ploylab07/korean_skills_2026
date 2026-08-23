@@ -12,5 +12,5 @@ variable "region" {
 variable "force_destroy" {
   description = "Allow Terraform to delete non-empty CloudTrail and Config buckets."
   type        = bool
-  default     = false
+  default     = true
 }

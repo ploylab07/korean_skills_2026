@@ -335,22 +335,36 @@ resource "aws_s3_bucket_notification" "student_score" {
   depends_on = [aws_lambda_permission.allow_s3_trigger]
 }
 
-resource "aws_s3_object" "test_csv" {
+# S3 notification 전파 전에 ObjectCreated 가 나가면 트리거가 누락될 수 있어 짧게 대기 후 업로드.
+resource "time_sleep" "wait_s3_notification" {
+  create_duration = "20s"
+
+  depends_on = [aws_s3_bucket_notification.student_score]
+}
+
+# 워크플로가 input/ → processed/ 로 파일을 옮기므로 aws_s3_object 로 관리하면 plan 이 매번 create 로 더러워짐.
+data "aws_region" "current" {
   provider = aws
-  bucket   = aws_s3_bucket.score.id
-  key      = "input/test.csv"
-  source   = "${path.module}/../../module1/test.csv"
-  etag     = filemd5("${path.module}/../../module1/test.csv")
+}
+
+resource "terraform_data" "seed_test_csv" {
+  input = filemd5("${path.module}/../../module1/test.csv")
+
+  provisioner "local-exec" {
+    # Git Bash (Windows contest PC) — cmd.exe 는 따옴표/경로에서 깨짐
+    interpreter = ["bash", "-c"]
+    command     = "aws s3 cp \"${path.module}/../../module1/test.csv\" \"s3://${aws_s3_bucket.score.id}/input/test.csv\" --region \"${data.aws_region.current.region}\""
+  }
 
   depends_on = [
     aws_s3_object.folders,
-    aws_s3_bucket_notification.student_score,
+    time_sleep.wait_s3_notification,
   ]
 }
 
 # Allows the asynchronous S3 → Lambda → Step Functions workflow to finish before apply returns.
 resource "time_sleep" "wait_for_workflow" {
-  create_duration = "45s"
+  create_duration = "60s"
 
-  depends_on = [aws_s3_object.test_csv]
+  depends_on = [terraform_data.seed_test_csv]
 }

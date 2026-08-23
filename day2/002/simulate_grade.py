@@ -104,7 +104,7 @@ def main() -> int:
         1.0,
         bool(stu)
         and scores_ok
-        and has(wf, 'key      = "input/test.csv"', "MoveToProcessed", "processed/")
+        and has(wf, "MoveToProcessed", "processed/", "input/test.csv")
         and "STU1020" in csv_text,
         "Normal path: STU1020 → DDB + processed/",
     )

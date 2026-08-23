@@ -1,1 +1,3 @@
-participant_id = "999"
+# Copy to terraform.tfvars and set YOUR contest number.
+# S3 names are globally unique — do NOT use 001 (already taken).
+participant_id = "588"

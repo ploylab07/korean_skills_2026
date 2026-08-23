@@ -152,8 +152,9 @@ resource "aws_route_table_association" "private" {
 }
 
 resource "aws_s3_bucket" "alerts" {
-  provider = aws
-  bucket   = local.bucket_name
+  provider      = aws
+  bucket        = local.bucket_name
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "alerts" {
@@ -166,11 +167,16 @@ resource "aws_s3_bucket_public_access_block" "alerts" {
 }
 
 resource "aws_s3_object" "producer_binary" {
-  provider = aws
-  bucket   = aws_s3_bucket.alerts.id
-  key      = "deploy/app"
-  source   = "${path.module}/../../module4/app"
-  etag     = filemd5("${path.module}/../../module4/app")
+  provider    = aws
+  bucket      = aws_s3_bucket.alerts.id
+  key         = "deploy/app"
+  source      = "${path.module}/../../module4/app"
+  source_hash = filemd5("${path.module}/../../module4/app")
+
+  # 대용량 바이너리는 multipart ETag 가 로컬 md5 와 달라 plan drift 가 난다.
+  lifecycle {
+    ignore_changes = [etag]
+  }
 }
 
 resource "aws_dynamodb_table" "sensor_data" {
@@ -415,30 +421,12 @@ resource "aws_msk_cluster_policy" "lambda" {
   })
 }
 
-resource "terraform_data" "sensor_consumer_package" {
-  triggers_replace = [
-    filesha256("${path.module}/lambda/sensor-consumer/index.py"),
-    filesha256("${path.module}/lambda/sensor-consumer/requirements.txt"),
-  ]
-
-  provisioner "local-exec" {
-    interpreter = ["bash", "-c"]
-    command     = <<-EOT
-      set -eu
-      package_dir="${path.module}/.build/sensor-consumer"
-      rm -rf "$package_dir"
-      mkdir -p "$package_dir"
-      cp "${path.module}/lambda/sensor-consumer/index.py" "$package_dir/index.py"
-      python3 -m pip install --disable-pip-version-check --break-system-packages --target "$package_dir" -r "${path.module}/lambda/sensor-consumer/requirements.txt"
-    EOT
-  }
-}
-
+# kafka-python 은 lambda/sensor-consumer/ 에 벤더링됨 (Windows pip/python3 stub 회피).
 data "archive_file" "sensor_consumer" {
   type        = "zip"
-  source_dir  = "${path.module}/.build/sensor-consumer"
+  source_dir  = "${path.module}/lambda/sensor-consumer"
   output_path = "${path.module}/.build/sensor-consumer.zip"
-  depends_on  = [terraform_data.sensor_consumer_package]
+  excludes    = ["requirements.txt", "**/__pycache__/**", "**/*.pyc"]
 }
 
 data "archive_file" "alert_consumer" {
