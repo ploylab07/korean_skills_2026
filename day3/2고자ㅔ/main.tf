@@ -2,9 +2,10 @@ terraform {
   required_version = ">= 1.5.0"
 
   required_providers {
+    # Versions must exist in build/tf-mirror (Windows offline contest PC).
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.100"
+      version = ">= 6.56.0, <= 6.60.0"
     }
     tls = {
       source  = "hashicorp/tls"
