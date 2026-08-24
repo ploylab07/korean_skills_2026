@@ -108,7 +108,23 @@ module "eks" {
   subnet_ids               = module.vpc.private_subnets
   control_plane_subnet_ids = module.vpc.private_subnets
 
-  enable_cluster_creator_admin_permissions = true
+  # IAM root (arn:...:root) is not reliably mapped by the module's session-context
+  # lookup, so grant AmazonEKSClusterAdminPolicy to the caller ARN explicitly.
+  enable_cluster_creator_admin_permissions = false
+  access_entries = {
+    terraform = {
+      principal_arn = data.aws_caller_identity.current.arn
+      type          = "STANDARD"
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:${data.aws_partition.current.partition}:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
+    }
+  }
 
   enabled_log_types = [
     "api",
@@ -563,6 +579,8 @@ resource "helm_release" "metrics_server" {
 
   wait    = true
   timeout = 600
+
+  depends_on = [module.eks]
 }
 
 # -------------------- Cluster Autoscaler --------------------
