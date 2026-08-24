@@ -54,8 +54,26 @@ for bucket in "${PREFIX}-images-${ACCOUNT}" "${PREFIX}-alb-logs-${ACCOUNT}"; do
   fi
 done
 
-for role in "${PREFIX}-rds-monitoring" "${PREFIX}-product-pod" "${PREFIX}-db-init-pod" "${PREFIX}-aws-lbc" "${PREFIX}-cluster-autoscaler"; do
+# Exact names + any role whose name starts with PREFIX- (module name_prefix leftovers)
+mapfile -t ROLES < <(
+  {
+    printf '%s\n' \
+      "${PREFIX}-rds-monitoring" \
+      "${PREFIX}-product-pod" \
+      "${PREFIX}-db-init-pod" \
+      "${PREFIX}-aws-lbc" \
+      "${PREFIX}-cluster-autoscaler" \
+      "${PREFIX}-cluster" \
+      "${PREFIX}-main-eks-node-group"
+    txt iam list-roles --query "Roles[?starts_with(RoleName, \`${PREFIX}\`)].RoleName" --output text
+  } | awk 'NF' | sort -u
+)
+for role in "${ROLES[@]}"; do
   echo "  delete IAM role $role"
+  for ip in $(txt iam list-instance-profiles-for-role --role-name "$role" --query 'InstanceProfiles[].InstanceProfileName' --output text); do
+    quiet iam remove-role-from-instance-profile --instance-profile-name "$ip" --role-name "$role"
+    quiet iam delete-instance-profile --instance-profile-name "$ip"
+  done
   for pol in $(txt iam list-attached-role-policies --role-name "$role" --query 'AttachedPolicies[].PolicyArn' --output text); do
     quiet iam detach-role-policy --role-name "$role" --policy-arn "$pol"
   done
@@ -63,6 +81,14 @@ for role in "${PREFIX}-rds-monitoring" "${PREFIX}-product-pod" "${PREFIX}-db-ini
     quiet iam delete-role-policy --role-name "$role" --policy-name "$pol"
   done
   quiet iam delete-role --role-name "$role"
+done
+
+for parn in $(txt iam list-policies --scope Local --query "Policies[?starts_with(PolicyName, \`${PREFIX}\`)].Arn" --output text); do
+  echo "  delete IAM policy $parn"
+  for ver in $(txt iam list-policy-versions --policy-arn "$parn" --query 'Versions[?IsDefaultVersion==`false`].VersionId' --output text); do
+    quiet iam delete-policy-version --policy-arn "$parn" --version-id "$ver"
+  done
+  quiet iam delete-policy --policy-arn "$parn"
 done
 
 for wid in $(txt wafv2 list-web-acls --scope REGIONAL --query "WebACLs[?Name=='${PREFIX}-waf'].Id" --output text); do

@@ -104,6 +104,11 @@ module "eks" {
   endpoint_public_access = true
   enable_irsa            = true
 
+  # Deterministic IAM names so wipe/re-apply works across PCs (no random suffix).
+  iam_role_name                            = "${local.name}-cluster"
+  iam_role_use_name_prefix                 = false
+  encryption_policy_use_name_prefix        = false
+
   vpc_id                   = module.vpc.vpc_id
   subnet_ids               = module.vpc.private_subnets
   control_plane_subnet_ids = module.vpc.private_subnets
@@ -164,6 +169,9 @@ module "eks" {
       desired_size   = var.node_desired_size
       max_size       = var.node_max_size
       capacity_type  = "ON_DEMAND"
+
+      iam_role_name            = "${local.name}-main-eks-node-group"
+      iam_role_use_name_prefix = false
 
       # Pods need IMDS hop limit 2 when using IRSA / host networking helpers.
       metadata_options = {
@@ -516,6 +524,7 @@ module "load_balancer_controller_irsa" {
   version = "~> 6.0"
 
   name                                   = "${local.name}-aws-lbc"
+  use_name_prefix                        = false
   attach_load_balancer_controller_policy = true
 
   oidc_providers = {
@@ -587,9 +596,10 @@ module "cluster_autoscaler_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
   version = "~> 6.0"
 
-  name                                 = "${local.name}-cluster-autoscaler"
-  attach_cluster_autoscaler_policy     = true
-  cluster_autoscaler_cluster_names     = [module.eks.cluster_name]
+  name                             = "${local.name}-cluster-autoscaler"
+  use_name_prefix                  = false
+  attach_cluster_autoscaler_policy = true
+  cluster_autoscaler_cluster_names = [module.eks.cluster_name]
 
   oidc_providers = {
     main = {

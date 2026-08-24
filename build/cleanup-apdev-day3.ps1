@@ -165,9 +165,20 @@ function Clear-ApdevDay3Leftovers {
             }
         }
 
-        # IAM roles (detach policies then delete)
-        foreach ($role in @("$Prefix-rds-monitoring", "$Prefix-product-pod", "$Prefix-db-init-pod", "$Prefix-aws-lbc", "$Prefix-cluster-autoscaler")) {
+        # IAM roles: exact names + module-generated prefixes (…-aws-lbc-<hash>, cluster/node roles)
+        $roleNames = New-Object System.Collections.Generic.HashSet[string]
+        foreach ($role in @("$Prefix-rds-monitoring", "$Prefix-product-pod", "$Prefix-db-init-pod", "$Prefix-aws-lbc", "$Prefix-cluster-autoscaler", "$Prefix-cluster", "$Prefix-main-eks-node-group")) {
+            [void]$roleNames.Add($role)
+        }
+        foreach ($role in (Get-AwsTokens iam list-roles --query "Roles[?starts_with(RoleName, '$Prefix')].RoleName" --output text)) {
+            [void]$roleNames.Add($role)
+        }
+        foreach ($role in $roleNames) {
             Write-Host "  delete IAM role $role"
+            foreach ($ip in (Get-AwsTokens iam list-instance-profiles-for-role --role-name $role --query "InstanceProfiles[].InstanceProfileName" --output text)) {
+                $null = Invoke-AwsQuiet iam remove-role-from-instance-profile --instance-profile-name $ip --role-name $role
+                $null = Invoke-AwsQuiet iam delete-instance-profile --instance-profile-name $ip
+            }
             foreach ($pol in (Get-AwsTokens iam list-attached-role-policies --role-name $role --query "AttachedPolicies[].PolicyArn" --output text)) {
                 $null = Invoke-AwsQuiet iam detach-role-policy --role-name $role --policy-arn $pol
             }
@@ -175,6 +186,15 @@ function Clear-ApdevDay3Leftovers {
                 $null = Invoke-AwsQuiet iam delete-role-policy --role-name $role --policy-name $pol
             }
             $null = Invoke-AwsQuiet iam delete-role --role-name $role
+        }
+
+        # Customer-managed policies left by EKS encryption policy (name prefixes)
+        foreach ($parn in (Get-AwsTokens iam list-policies --scope Local --query "Policies[?starts_with(PolicyName, '$Prefix')].Arn" --output text)) {
+            Write-Host "  delete IAM policy $parn"
+            foreach ($ver in (Get-AwsTokens iam list-policy-versions --policy-arn $parn --query "Versions[?IsDefaultVersion==``false``].VersionId" --output text)) {
+                $null = Invoke-AwsQuiet iam delete-policy-version --policy-arn $parn --version-id $ver
+            }
+            $null = Invoke-AwsQuiet iam delete-policy --policy-arn $parn
         }
 
         # WAF WebACL (REGIONAL)
