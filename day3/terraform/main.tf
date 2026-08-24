@@ -108,12 +108,11 @@ module "eks" {
   subnet_ids               = module.vpc.private_subnets
   control_plane_subnet_ids = module.vpc.private_subnets
 
-  # IAM root (arn:...:root) is not reliably mapped by the module's session-context
-  # lookup, so grant AmazonEKSClusterAdminPolicy to the caller ARN explicitly.
+  # Works for IAM user, root, and assumed roles (issuer_arn strips session suffix).
   enable_cluster_creator_admin_permissions = false
   access_entries = {
     terraform = {
-      principal_arn = data.aws_caller_identity.current.arn
+      principal_arn = data.aws_iam_session_context.current.issuer_arn
       type          = "STANDARD"
       policy_associations = {
         admin = {

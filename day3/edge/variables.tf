@@ -4,8 +4,13 @@ variable "aws_region" {
 }
 
 variable "project_name" {
-  type    = string
-  default = "apdev-dev"
+  type        = string
+  description = "Name prefix from core stack output project_name (e.g. apdev-dev). Required — pass from scripts/07."
+
+  validation {
+    condition     = length(var.project_name) > 0
+    error_message = "project_name must be set (use core terraform output project_name)."
+  }
 }
 
 variable "alb_dns_name" {

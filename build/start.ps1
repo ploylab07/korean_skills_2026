@@ -480,6 +480,11 @@ function Invoke-Day3PostDeploy([string]$AssignPath) {
 }
 
 function Ensure-Day3TfvarsForStart([string]$AssignPath) {
+    if ($env:DAY3_PROJECT -and -not $env:TF_VAR_project) { $env:TF_VAR_project = $env:DAY3_PROJECT }
+    if ($env:DAY3_ENVIRONMENT -and -not $env:TF_VAR_environment) { $env:TF_VAR_environment = $env:DAY3_ENVIRONMENT }
+    if ($env:DB_IDENTIFIER -and -not $env:TF_VAR_db_identifier) { $env:TF_VAR_db_identifier = $env:DB_IDENTIFIER }
+    if ($env:AWS_DEFAULT_REGION -and -not $env:TF_VAR_aws_region) { $env:TF_VAR_aws_region = $env:AWS_DEFAULT_REGION }
+
     $tfvars = Join-Path $AssignPath "terraform.tfvars"
     $example = Join-Path $AssignPath "terraform.tfvars.example"
     if (-not (Test-Path -LiteralPath $tfvars)) {
@@ -539,7 +544,7 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
                 (Test-TfStateHas -AssignPath $AssignPath -Address "aws_s3_bucket.images")
         }
         if (-not $hasState) {
-            Write-Warn "day3 local state empty/missing — wiping leftover apdev-dev-* in AWS before apply"
+            Write-Warn "day3 local state empty/missing — wiping leftover project resources in AWS before apply"
             . (Join-Path $BuildDir "cleanup-apdev-day3.ps1")
             $region = if ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { "ap-northeast-2" }
             Clear-ApdevDay3Leftovers -Region $region

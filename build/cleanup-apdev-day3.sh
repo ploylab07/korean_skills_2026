@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Wipe day3 apdev-dev-* leftovers (Linux). Requires aws CLI + valid credentials.
+# Wipe day3 leftovers (Linux). Requires aws CLI + valid credentials.
+# Naming from .env: DAY3_PROJECT + DAY3_ENVIRONMENT, or APDEV_PREFIX, or defaults apdev-dev.
 set -euo pipefail
 REGION="${AWS_DEFAULT_REGION:-ap-northeast-2}"
-PREFIX="${APDEV_PREFIX:-apdev-dev}"
+if [[ -n "${APDEV_PREFIX:-}" ]]; then
+  PREFIX="$APDEV_PREFIX"
+else
+  PREFIX="${DAY3_PROJECT:-apdev}-${DAY3_ENVIRONMENT:-dev}"
+fi
+DB_ID="${DB_IDENTIFIER:-${TF_VAR_db_identifier:-apdev-rds-instance}}"
 export AWS_DEFAULT_REGION="$REGION"
 
 quiet() { aws "$@" >/dev/null 2>&1 || true; }
@@ -27,7 +33,6 @@ if aws eks describe-cluster --name "$CLUSTER" >/dev/null 2>&1; then
   quiet eks wait cluster-deleted --name "$CLUSTER"
 fi
 
-DB_ID=apdev-rds-instance
 if aws rds describe-db-instances --db-instance-identifier "$DB_ID" >/dev/null 2>&1; then
   echo "  delete RDS $DB_ID"
   quiet rds delete-db-instance --db-instance-identifier "$DB_ID" --skip-final-snapshot --delete-automated-backups

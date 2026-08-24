@@ -40,8 +40,23 @@ function Get-AwsTokens {
 function Clear-ApdevDay3Leftovers {
     param(
         [string]$Region = "ap-northeast-2",
-        [string]$Prefix = "apdev-dev"
+        [string]$Prefix = "",
+        [string]$DbIdentifier = ""
     )
+
+    if (-not $Prefix) {
+        if ($env:APDEV_PREFIX) {
+            $Prefix = $env:APDEV_PREFIX
+        }
+        else {
+            $proj = if ($env:TF_VAR_project) { $env:TF_VAR_project } elseif ($env:DAY3_PROJECT) { $env:DAY3_PROJECT } else { "apdev" }
+            $envName = if ($env:TF_VAR_environment) { $env:TF_VAR_environment } elseif ($env:DAY3_ENVIRONMENT) { $env:DAY3_ENVIRONMENT } else { "dev" }
+            $Prefix = "{0}-{1}" -f $proj, $envName
+        }
+    }
+    if (-not $DbIdentifier) {
+        $DbIdentifier = if ($env:TF_VAR_db_identifier) { $env:TF_VAR_db_identifier } elseif ($env:DB_IDENTIFIER) { $env:DB_IDENTIFIER } else { "apdev-rds-instance" }
+    }
 
     if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
         Write-Host "[!] aws CLI not found - skip day3 leftover wipe" -ForegroundColor Yellow
@@ -119,7 +134,7 @@ function Clear-ApdevDay3Leftovers {
         }
 
         # RDS instance
-        $dbId = "apdev-rds-instance"
+        $dbId = $DbIdentifier
         $db = Get-AwsText rds describe-db-instances --db-instance-identifier $dbId --query "DBInstances[0].DBInstanceIdentifier" --output text
         if ($db) {
             Write-Host "  delete RDS $dbId"

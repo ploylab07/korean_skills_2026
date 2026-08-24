@@ -13,8 +13,13 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 
-# Fresh token per Helm/Kubernetes call (IAM root included). Static
-# aws_eks_cluster_auth tokens can be issued before access entries exist.
+# Resolve IAM principal for EKS access entries (role ARN when using STS assume-role).
+data "aws_iam_session_context" "current" {
+  arn = data.aws_caller_identity.current.arn
+}
+
+# Fresh token per Helm/Kubernetes call. Static aws_eks_cluster_auth tokens can be
+# issued before access entries exist.
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)

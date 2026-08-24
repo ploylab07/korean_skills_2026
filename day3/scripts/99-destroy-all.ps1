@@ -28,7 +28,7 @@ if (Test-Path (Join-Path $Script:TfDir 'terraform.tfstate')) {
 # Always wipe SameName leftovers (state may be empty after zip re-download).
 $cleanup = Join-Path $Script:RepoRoot "build\cleanup-apdev-day3.ps1"
 if (Test-Path -LiteralPath $cleanup) {
-    Write-Step "Wipe leftover apdev-dev-* resources by name"
+    Write-Step "Wipe leftover day3 resources by name (from .env DAY3_* / APDEV_PREFIX)"
     . $cleanup
     $region = if ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { "ap-northeast-2" }
     Clear-ApdevDay3Leftovers -Region $region

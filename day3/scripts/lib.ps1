@@ -84,12 +84,34 @@ function Get-TfOutputJson {
 }
 
 function Get-AwsRegion {
+    if ($env:AWS_DEFAULT_REGION) { return $env:AWS_DEFAULT_REGION }
+    if ($env:TF_VAR_aws_region) { return $env:TF_VAR_aws_region }
     try { return Get-TfOutputRaw "aws_region" } catch { return "ap-northeast-2" }
 }
 
 function Get-ClusterName { return Get-TfOutputRaw "cluster_name" }
+
+function Get-Day3NamePrefix {
+    # Prefer live terraform output, then TF_VAR / DAY3_* from .env, then competition defaults.
+    try {
+        $fromOut = Get-TfOutputRaw "project_name"
+        if ($fromOut) { return $fromOut }
+    }
+    catch {}
+    $proj = if ($env:TF_VAR_project) { $env:TF_VAR_project } elseif ($env:DAY3_PROJECT) { $env:DAY3_PROJECT } else { "apdev" }
+    $envName = if ($env:TF_VAR_environment) { $env:TF_VAR_environment } elseif ($env:DAY3_ENVIRONMENT) { $env:DAY3_ENVIRONMENT } else { "dev" }
+    if ($env:APDEV_PREFIX) { return $env:APDEV_PREFIX }
+    return ("{0}-{1}" -f $proj, $envName)
+}
+
 function Get-ProjectName {
-    try { return Get-TfOutputRaw "project_name" } catch { return "apdev-dev" }
+    try { return Get-TfOutputRaw "project_name" } catch { return (Get-Day3NamePrefix) }
+}
+
+function Get-Day3DbIdentifier {
+    if ($env:TF_VAR_db_identifier) { return $env:TF_VAR_db_identifier }
+    if ($env:DB_IDENTIFIER) { return $env:DB_IDENTIFIER }
+    return "apdev-rds-instance"
 }
 
 function Ensure-CoreState {
@@ -118,7 +140,20 @@ function Invoke-Kubectl {
     Assert-NativeSuccess "kubectl"
 }
 
+function Import-Day3EnvOverrides {
+    # Map portable .env knobs -> TF_VAR_* so any AWS account / contest PC works.
+    if ($env:DAY3_PROJECT -and -not $env:TF_VAR_project) { $env:TF_VAR_project = $env:DAY3_PROJECT }
+    if ($env:DAY3_ENVIRONMENT -and -not $env:TF_VAR_environment) { $env:TF_VAR_environment = $env:DAY3_ENVIRONMENT }
+    if ($env:DB_IDENTIFIER -and -not $env:TF_VAR_db_identifier) { $env:TF_VAR_db_identifier = $env:DB_IDENTIFIER }
+    if ($env:AWS_DEFAULT_REGION -and -not $env:TF_VAR_aws_region) { $env:TF_VAR_aws_region = $env:AWS_DEFAULT_REGION }
+    if ($env:DB_PASSWORD -and $env:DB_PASSWORD.Length -ge 8 -and -not $env:TF_VAR_db_password) {
+        $env:TF_VAR_db_password = $env:DB_PASSWORD
+    }
+}
+
 function Ensure-Day3Tfvars {
+    Import-Day3EnvOverrides
+
     $tfvars = Join-Path $Script:TfDir "terraform.tfvars"
     $example = Join-Path $Script:TfDir "terraform.tfvars.example"
     if (-not (Test-Path -LiteralPath $tfvars)) {
@@ -127,10 +162,6 @@ function Ensure-Day3Tfvars {
         }
         Copy-Item -LiteralPath $example -Destination $tfvars
         Write-Host "Created: $tfvars"
-    }
-
-    if ($env:DB_PASSWORD -and $env:DB_PASSWORD.Length -ge 8) {
-        $env:TF_VAR_db_password = $env:DB_PASSWORD
     }
 
     $needsPassword = $false
@@ -151,7 +182,6 @@ function Ensure-Day3Tfvars {
         }
         $env:TF_VAR_db_password = $plain
         $env:DB_PASSWORD = $plain
-        # Keep placeholder in file; TF_VAR overrides so password is not written to disk.
         Write-Host "Using TF_VAR_db_password (not written to terraform.tfvars)."
     }
 }

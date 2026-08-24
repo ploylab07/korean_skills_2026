@@ -1,3 +1,6 @@
+# Defaults match the competition brief. Override via .env (recommended on Windows):
+#   DB_PASSWORD, DAY3_PROJECT, DAY3_ENVIRONMENT, DB_IDENTIFIER
+# TF_VAR_* from .env wins over values below — safe across accounts / PCs.
 project         = "apdev"
 environment     = "dev"
 aws_region      = "ap-northeast-2"

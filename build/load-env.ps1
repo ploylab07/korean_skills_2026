@@ -25,8 +25,17 @@
     if ($env:PARTICIPANT_ID -and -not $env:TF_VAR_participant_id) {
         $env:TF_VAR_participant_id = $env:PARTICIPANT_ID
     }
-    # day3 RDS password
+    # day3 — portable across AWS accounts / contest PCs via .env
     if ($env:DB_PASSWORD -and -not $env:TF_VAR_db_password) {
         $env:TF_VAR_db_password = $env:DB_PASSWORD
+    }
+    if ($env:DAY3_PROJECT -and -not $env:TF_VAR_project) {
+        $env:TF_VAR_project = $env:DAY3_PROJECT
+    }
+    if ($env:DAY3_ENVIRONMENT -and -not $env:TF_VAR_environment) {
+        $env:TF_VAR_environment = $env:DAY3_ENVIRONMENT
+    }
+    if ($env:DB_IDENTIFIER -and -not $env:TF_VAR_db_identifier) {
+        $env:TF_VAR_db_identifier = $env:DB_IDENTIFIER
     }
 }
