@@ -1,0 +1,16 @@
+{
+  "archives": {
+    "linux_amd64": {
+      "hashes": [
+        "h1:gY8WFBSBoSArOXe+zRmhLU1GzS4/V1P10NAEmtrPj4w="
+      ],
+      "url": "terraform-provider-cloudinit_2.4.0_linux_amd64.zip"
+    },
+    "windows_amd64": {
+      "hashes": [
+        "h1:qcbkVdUrG7pScr2Ho1z6vP1tkD3L5C4t6SYijbseObI="
+      ],
+      "url": "terraform-provider-cloudinit_2.4.0_windows_amd64.zip"
+    }
+  }
+}

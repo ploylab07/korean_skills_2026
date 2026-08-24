@@ -25,4 +25,8 @@
     if ($env:PARTICIPANT_ID -and -not $env:TF_VAR_participant_id) {
         $env:TF_VAR_participant_id = $env:PARTICIPANT_ID
     }
+    # day3 RDS password
+    if ($env:DB_PASSWORD -and -not $env:TF_VAR_db_password) {
+        $env:TF_VAR_db_password = $env:DB_PASSWORD
+    }
 }

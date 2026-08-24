@@ -226,11 +226,11 @@ function Wait-ForContestTools {
 }
 
 function Test-NeedsBashLocalExec([string]$RelPath) {
-    return ($RelPath -match '(?i)day1\\(002|003|007)|day2\\(002|007|008)')
+    return ($RelPath -match '(?i)day1\\(002|003|007)|day2\\(002|007|008)|day3\\terraform')
 }
 
 function Test-NeedsKubectl([string]$RelPath) {
-    return ($RelPath -match '(?i)day1\\(002|003|007)|day2\\(007|008)')
+    return ($RelPath -match '(?i)day1\\(002|003|007)|day2\\(007|008)|day3\\terraform')
 }
 
 function Test-NeedsHelm([string]$RelPath) {

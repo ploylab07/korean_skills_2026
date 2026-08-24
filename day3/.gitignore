@@ -1,0 +1,13 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform/terraform.tfvars
+edge/terraform.tfvars
+k8s/rendered/
+.image-tag
+.public-endpoint
+apps/user
+apps/product
+apps/stress
+dump/load_user.dump

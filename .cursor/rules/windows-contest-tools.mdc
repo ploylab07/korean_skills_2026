@@ -5,11 +5,11 @@ alwaysApply: true
 
 # Windows contest tools + ECR images
 
-Image builds for `day1/002` and `day1/007` use `build/modules/ecr-codebuild`:
+Image builds for `day1/002`, `day1/007`, and `day3` use CodeBuild (no Docker Desktop):
 
 1. Zip Dockerfile + app binary → S3  
 2. CodeBuild (privileged) `docker build` / `docker push` to ECR  
-3. `null_resource` waits with AWS CLI (needs `aws` + `bash`, **not** Docker Desktop)
+3. Wait with AWS CLI (`aws` required; **not** Docker Desktop)
 
 `ensure-contest-tools.ps1` no longer requires Docker Desktop.
 

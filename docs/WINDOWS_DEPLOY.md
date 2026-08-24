@@ -103,6 +103,7 @@ AWS_DEFAULT_REGION:     ap-northeast-2   ← Enter만 눌러도 됨
   [5] day2 / 002
   [6] day2 / 007
   [7] day2 / 008
+  [8] day3 / terraform
   [0] Exit
 ```
 
@@ -115,6 +116,7 @@ AWS_DEFAULT_REGION:     ap-northeast-2   ← Enter만 눌러도 됨
 | 5 | `day2\002` | |
 | 6 | `day2\007` | |
 | 7 | `day2\008` | |
+| 8 | `day3\terraform` | apply 후 앱 바이너리/`dump\load_user.dump` 있으면 이미지·k8s·CloudFront 자동 |
 | 0 | 종료 | |
 
 ### 배포 모드

@@ -19,4 +19,8 @@ load_repo_env() {
   if [[ -n "${PARTICIPANT_ID:-}" && -z "${TF_VAR_participant_id:-}" ]]; then
     export TF_VAR_participant_id="$PARTICIPANT_ID"
   fi
+  # day3 RDS password
+  if [[ -n "${DB_PASSWORD:-}" && -z "${TF_VAR_db_password:-}" ]]; then
+    export TF_VAR_db_password="$DB_PASSWORD"
+  fi
 }

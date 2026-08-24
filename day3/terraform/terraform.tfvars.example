@@ -1,0 +1,19 @@
+project         = "apdev"
+environment     = "dev"
+aws_region      = "ap-northeast-2"
+cluster_version = "1.34"
+
+db_identifier = "apdev-rds-instance"
+db_name       = "dev"
+db_username   = "admin"
+db_password   = "CHANGE_ME_STRONG_PASSWORD"
+
+# The task permits only t3.medium EC2 worker nodes.
+node_instance_types = ["t3.medium"]
+node_min_size       = 2
+node_desired_size   = 2
+node_max_size       = 3
+
+enable_multi_az_rds = true
+log_retention_days  = 30
+waf_rate_limit      = 3000

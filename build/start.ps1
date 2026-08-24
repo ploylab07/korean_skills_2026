@@ -16,6 +16,7 @@ $Catalog = @(
     @{ Id = "5"; Path = "day2\002"; Label = "day2 / 002" }
     @{ Id = "6"; Path = "day2\007"; Label = "day2 / 007" }
     @{ Id = "7"; Path = "day2\008"; Label = "day2 / 008" }
+    @{ Id = "8"; Path = "day3\terraform"; Label = "day3 / terraform" }
 )
 
 function Write-Step([string]$Message) {
@@ -233,6 +234,20 @@ function Invoke-Destroy([string]$AssignPath, [string]$RelPath) {
         . (Join-Path $BuildDir "cleanup-wsc2026-day2.ps1")
         Ensure-Day2002Tfvars -AssignPath $AssignPath
     }
+    if ($RelPath -match '(?i)day3\\terraform') {
+        $destroyPs1 = Join-Path (Split-Path -Parent $AssignPath) "scripts\99-destroy-all.ps1"
+        if (Test-Path -LiteralPath $destroyPs1) {
+            Write-Host ("RUN: {0} -Force" -f $destroyPs1) -ForegroundColor Cyan
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $destroyPs1 -Force
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn ("day3 destroy script exit {0}" -f $LASTEXITCODE)
+            }
+            else {
+                Write-Ok "Destroy done: $RelPath"
+            }
+            return $true
+        }
+    }
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("destroy", "-input=false", "-auto-approve"))
     if ($code -ne 0) {
         Write-Warn "terraform destroy failed (exit $code) - will still try AWS name-based wipe if day1/002"
@@ -435,6 +450,62 @@ function Invoke-Day1003PostDeploy([string]$AssignPath) {
     Write-Ok "day1/003 post-deploy done"
 }
 
+function Invoke-Day3PostDeploy([string]$AssignPath) {
+    Write-Step "day3 post-deploy (RDS init, CodeBuild images, k8s, CloudFront)"
+    $day3Root = Split-Path -Parent $AssignPath
+    $post = Join-Path $day3Root "scripts\10-complete-after-apply.ps1"
+    if (-not (Test-Path -LiteralPath $post)) {
+        throw "Missing $post"
+    }
+    $apps = Join-Path $day3Root "apps"
+    $dump = Join-Path $day3Root "dump\load_user.dump"
+    $ready = $true
+    foreach ($bin in @("user", "product", "stress")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $apps $bin))) { $ready = $false }
+    }
+    if (-not (Test-Path -LiteralPath $dump)) { $ready = $false }
+    if (-not $ready) {
+        Write-Warn "Skip post-deploy: place Linux binaries in day3\apps\ and dump\load_user.dump"
+        Write-Host "Then run:  day3\start.cmd   (choose post-deploy)" -ForegroundColor Yellow
+        Write-Host "Or:        powershell -File day3\scripts\10-complete-after-apply.ps1" -ForegroundColor Yellow
+        return
+    }
+    Write-Host ("RUN: {0}" -f $post) -ForegroundColor Cyan
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $post
+    if ($LASTEXITCODE -ne 0) {
+        throw ("day3 post-deploy failed (exit {0})" -f $LASTEXITCODE)
+    }
+    Write-Ok "day3 post-deploy done"
+}
+
+function Ensure-Day3TfvarsForStart([string]$AssignPath) {
+    $tfvars = Join-Path $AssignPath "terraform.tfvars"
+    $example = Join-Path $AssignPath "terraform.tfvars.example"
+    if (-not (Test-Path -LiteralPath $tfvars)) {
+        if (-not (Test-Path -LiteralPath $example)) {
+            throw "Missing $example"
+        }
+        Copy-Item -LiteralPath $example -Destination $tfvars
+        Write-Host "Created: $tfvars"
+    }
+    if ($env:DB_PASSWORD -and $env:DB_PASSWORD.Length -ge 8) {
+        $env:TF_VAR_db_password = $env:DB_PASSWORD
+    }
+    $needs = Select-String -Path $tfvars -Pattern 'CHANGE_ME_STRONG_PASSWORD' -Quiet
+    if ($needs -and -not $env:TF_VAR_db_password) {
+        $secure = Read-Host "RDS db_password (min 8 chars)" -AsSecureString
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        try { $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+        if ([string]::IsNullOrWhiteSpace($plain) -or $plain.Length -lt 8) {
+            throw "db_password must be at least 8 characters."
+        }
+        $env:TF_VAR_db_password = $plain
+        $env:DB_PASSWORD = $plain
+        Write-Host "Using TF_VAR_db_password (not written to terraform.tfvars)."
+    }
+}
+
 function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
     Write-Step "5/5 Deploy (apply) - $RelPath"
 
@@ -453,6 +524,10 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
         . (Join-Path $BuildDir "cleanup-wsc2026-day2.ps1")
         Ensure-Day2002Tfvars -AssignPath $AssignPath
         Remove-Wsc2026Day2OrphanAws -AssignPath $AssignPath
+    }
+
+    if ($RelPath -match '(?i)day3\\terraform') {
+        Ensure-Day3TfvarsForStart -AssignPath $AssignPath
     }
 
     if ($RelPath -match '(?i)day1\\002') {
@@ -490,6 +565,9 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
                     if ($RelPath -match '(?i)day1\\003') {
                         Invoke-Day1003PostDeploy -AssignPath $AssignPath
                     }
+                    if ($RelPath -match '(?i)day3\\terraform') {
+                        Invoke-Day3PostDeploy -AssignPath $AssignPath
+                    }
                     Write-Ok "Deploy done: $RelPath"
                     return $true
                 }
@@ -501,6 +579,9 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
 
     if ($RelPath -match '(?i)day1\\003') {
         Invoke-Day1003PostDeploy -AssignPath $AssignPath
+    }
+    if ($RelPath -match '(?i)day3\\terraform') {
+        Invoke-Day3PostDeploy -AssignPath $AssignPath
     }
 
     Write-Ok "Deploy done: $RelPath"

@@ -113,6 +113,22 @@ switch ($Action) {
             Ensure-Day2002Tfvars -AssignPath $assignPath
         }
 
+        if ($AssignmentFolder -match '(?i)day3[/\\]terraform' -and $Action -in @("plan", "apply", "destroy", "validate")) {
+            $tfvars = Join-Path $assignPath "terraform.tfvars"
+            $example = Join-Path $assignPath "terraform.tfvars.example"
+            if (-not (Test-Path -LiteralPath $tfvars) -and (Test-Path -LiteralPath $example)) {
+                Copy-Item -LiteralPath $example -Destination $tfvars
+                Write-Host "Created: $tfvars"
+            }
+            if ($env:DB_PASSWORD -and $env:DB_PASSWORD.Length -ge 8) {
+                $env:TF_VAR_db_password = $env:DB_PASSWORD
+            }
+            if ((Test-Path -LiteralPath $tfvars) -and (Select-String -Path $tfvars -Pattern 'CHANGE_ME_STRONG_PASSWORD' -Quiet) -and -not $env:TF_VAR_db_password) {
+                Write-Host "Set DB_PASSWORD in .env or TF_VAR_db_password before plan/apply." -ForegroundColor Yellow
+                exit 1
+            }
+        }
+
         switch ($Action) {
             "init" {
                 & $TfCmd -chdir="$assignPath" init -input=false
