@@ -512,6 +512,71 @@ function Ensure-Day3TfvarsForStart([string]$AssignPath) {
     }
 }
 
+function Get-Day3ClusterName {
+    $proj = if ($env:TF_VAR_project) { $env:TF_VAR_project } elseif ($env:DAY3_PROJECT) { $env:DAY3_PROJECT } else { "apdev" }
+    $envName = if ($env:TF_VAR_environment) { $env:TF_VAR_environment } elseif ($env:DAY3_ENVIRONMENT) { $env:DAY3_ENVIRONMENT } else { "dev" }
+    return ("{0}-{1}-cluster" -f $proj, $envName)
+}
+
+function Test-Day3EksActive {
+    $name = Get-Day3ClusterName
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $status = (& aws eks describe-cluster --name $name --query "cluster.status" --output text 2>$null | Out-String).Trim()
+    $ErrorActionPreference = $prev
+    if (-not $status -or $status -eq "None" -or $status -eq "null") { return $false }
+    return ($status -eq "ACTIVE")
+}
+
+function Clear-Day3K8sAddonState([string]$AssignPath) {
+    # Drop kubernetes/helm addresses so plan does not dial localhost when EKS is gone.
+    $addrs = @(
+        "kubernetes_service_account_v1.aws_lbc",
+        "kubernetes_service_account_v1.aws_lbc[0]",
+        "helm_release.aws_lbc",
+        "helm_release.aws_lbc[0]",
+        "helm_release.metrics_server",
+        "helm_release.metrics_server[0]",
+        "kubernetes_service_account_v1.cluster_autoscaler",
+        "kubernetes_service_account_v1.cluster_autoscaler[0]",
+        "helm_release.cluster_autoscaler",
+        "helm_release.cluster_autoscaler[0]"
+    )
+    $exe = [string](Get-TerraformExe)
+    foreach ($addr in $addrs) {
+        if (-not (Test-TfStateHas -AssignPath $AssignPath -Address $addr)) { continue }
+        Write-Host ("  state rm {0}" -f $addr) -ForegroundColor DarkYellow
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $null = & $exe "-chdir=$AssignPath" "state" "rm" $addr 2>$null
+        $ErrorActionPreference = $prev
+    }
+}
+
+function Invoke-Day3TerraformBootstrap([string]$AssignPath) {
+    # Phase 1: create VPC/EKS/RDS/... without talking to the K8s API.
+    # Phase 2: enable helm/kubernetes addons once the cluster endpoint exists.
+    if (Test-Day3EksActive) {
+        return $false
+    }
+
+    Write-Warn ("EKS {0} not ACTIVE — bootstrap without k8s addons first (avoids localhost:80 plan failure)" -f (Get-Day3ClusterName))
+    Clear-Day3K8sAddonState -AssignPath $AssignPath
+
+    $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("plan", "-input=false", "-var=enable_k8s_addons=false"))
+    if ($code -ne 0) { throw "terraform plan failed (day3 bootstrap phase 1)" }
+
+    $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve", "-var=enable_k8s_addons=false"))
+    if ($code -ne 0) {
+        Write-Warn "terraform apply failed (day3 bootstrap phase 1)"
+        Show-LastTerraformErrors
+        throw "terraform apply failed — day3 bootstrap phase 1 (see build\last-terraform.log)"
+    }
+
+    Write-Step "day3 bootstrap phase 2 — install k8s addons"
+    return $true
+}
+
 function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
     Write-Step "5/5 Deploy (apply) - $RelPath"
 
@@ -549,6 +614,10 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
             $region = if ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { "ap-northeast-2" }
             Clear-ApdevDay3Leftovers -Region $region
         }
+        # Stale state: k8s resources tracked but cluster wiped → plan hits localhost:80
+        if ($hasState -and -not (Test-Day3EksActive)) {
+            Clear-Day3K8sAddonState -AssignPath $AssignPath
+        }
     }
 
     if ($RelPath -match '(?i)day1\\002') {
@@ -557,6 +626,10 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
 
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("validate"))
     if ($code -ne 0) { throw "terraform validate failed" }
+
+    if ($RelPath -match '(?i)day3\\terraform') {
+        $null = Invoke-Day3TerraformBootstrap -AssignPath $AssignPath
+    }
 
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("plan", "-input=false"))
     if ($code -ne 0) { throw "terraform plan failed" }
@@ -580,6 +653,9 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
                     . (Join-Path $BuildDir "cleanup-wsc2026-day2.ps1")
                     Ensure-Day2002Tfvars -AssignPath $AssignPath
                     Remove-Wsc2026Day2OrphanAws -AssignPath $AssignPath
+                }
+                if ($RelPath -match '(?i)day3\\terraform') {
+                    $null = Invoke-Day3TerraformBootstrap -AssignPath $AssignPath
                 }
                 $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("apply", "-input=false", "-auto-approve"))
                 if ($code -eq 0) {

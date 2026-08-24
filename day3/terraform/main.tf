@@ -536,6 +536,8 @@ module "load_balancer_controller_irsa" {
 }
 
 resource "kubernetes_service_account_v1" "aws_lbc" {
+  count = var.enable_k8s_addons ? 1 : 0
+
   metadata {
     name      = "aws-load-balancer-controller"
     namespace = "kube-system"
@@ -548,6 +550,8 @@ resource "kubernetes_service_account_v1" "aws_lbc" {
 }
 
 resource "helm_release" "aws_lbc" {
+  count = var.enable_k8s_addons ? 1 : 0
+
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
@@ -563,7 +567,7 @@ resource "helm_release" "aws_lbc" {
   }
   set {
     name  = "serviceAccount.name"
-    value = kubernetes_service_account_v1.aws_lbc.metadata[0].name
+    value = kubernetes_service_account_v1.aws_lbc[0].metadata[0].name
   }
   set {
     name  = "region"
@@ -580,6 +584,8 @@ resource "helm_release" "aws_lbc" {
 
 # -------------------- Metrics Server --------------------
 resource "helm_release" "metrics_server" {
+  count = var.enable_k8s_addons ? 1 : 0
+
   name       = "metrics-server"
   repository = "https://kubernetes-sigs.github.io/metrics-server/"
   chart      = "metrics-server"
@@ -610,6 +616,8 @@ module "cluster_autoscaler_irsa" {
 }
 
 resource "kubernetes_service_account_v1" "cluster_autoscaler" {
+  count = var.enable_k8s_addons ? 1 : 0
+
   metadata {
     name      = "cluster-autoscaler"
     namespace = "kube-system"
@@ -621,6 +629,8 @@ resource "kubernetes_service_account_v1" "cluster_autoscaler" {
 }
 
 resource "helm_release" "cluster_autoscaler" {
+  count = var.enable_k8s_addons ? 1 : 0
+
   name       = "cluster-autoscaler"
   repository = "https://kubernetes.github.io/autoscaler"
   chart      = "cluster-autoscaler"
@@ -640,7 +650,7 @@ resource "helm_release" "cluster_autoscaler" {
   }
   set {
     name  = "rbac.serviceAccount.name"
-    value = kubernetes_service_account_v1.cluster_autoscaler.metadata[0].name
+    value = kubernetes_service_account_v1.cluster_autoscaler[0].metadata[0].name
   }
   set {
     name  = "extraArgs.balance-similar-node-groups"

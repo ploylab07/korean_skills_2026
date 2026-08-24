@@ -96,3 +96,9 @@ variable "waf_rate_limit" {
   description = "Maximum requests per five-minute evaluation window per source IP."
   default     = 3000
 }
+
+variable "enable_k8s_addons" {
+  type        = bool
+  description = "Install metrics-server / LBC / cluster-autoscaler via kubernetes+helm providers. Set false until the EKS API is reachable (bootstrap), otherwise plan talks to localhost:80."
+  default     = true
+}
