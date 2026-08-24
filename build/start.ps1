@@ -242,11 +242,12 @@ function Invoke-Destroy([string]$AssignPath, [string]$RelPath) {
             if ($LASTEXITCODE -ne 0) {
                 Write-Warn ("day3 destroy script exit {0}" -f $LASTEXITCODE)
             }
-            else {
-                Write-Ok "Destroy done: $RelPath"
-            }
-            return $true
         }
+        . (Join-Path $BuildDir "cleanup-apdev-day3.ps1")
+        $region = if ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { "ap-northeast-2" }
+        Clear-ApdevDay3Leftovers -Region $region
+        Write-Ok "Destroy done: $RelPath"
+        return $true
     }
     $code = [int](Invoke-RepoTerraform -Chdir $AssignPath -TfArgs @("destroy", "-input=false", "-auto-approve"))
     if ($code -ne 0) {
@@ -528,6 +529,21 @@ function Invoke-Apply([string]$RelPath, [string]$AssignPath) {
 
     if ($RelPath -match '(?i)day3\\terraform') {
         Ensure-Day3TfvarsForStart -AssignPath $AssignPath
+        # If local state is empty/missing but AWS still has apdev-dev-* names, wipe them
+        # so apply does not hit AlreadyExists. Skip wipe when state already tracks resources.
+        $stateFile = Join-Path $AssignPath "terraform.tfstate"
+        $hasState = $false
+        if (Test-Path -LiteralPath $stateFile) {
+            $hasState = (Test-TfStateHas -AssignPath $AssignPath -Address "module.eks.aws_eks_cluster.this[0]") -or
+                (Test-TfStateHas -AssignPath $AssignPath -Address "aws_db_subnet_group.main") -or
+                (Test-TfStateHas -AssignPath $AssignPath -Address "aws_s3_bucket.images")
+        }
+        if (-not $hasState) {
+            Write-Warn "day3 local state empty/missing — wiping leftover apdev-dev-* in AWS before apply"
+            . (Join-Path $BuildDir "cleanup-apdev-day3.ps1")
+            $region = if ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { "ap-northeast-2" }
+            Clear-ApdevDay3Leftovers -Region $region
+        }
     }
 
     if ($RelPath -match '(?i)day1\\002') {
